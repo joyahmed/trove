@@ -1,0 +1,27 @@
+/* Trove's light terminal palette. wterm's built-in `light` theme (One Light) leaves cyan #0184bc at
+   4.0:1, yellow, green and bright black under 4.5:1 and paints ANSI white and bright white
+   (#fafafa, #fff) the same as the #fafafa background, so Starship's directory segment and any
+   "white" text were hard to read on Mac. Every one of the 16 colours here clears WCAG AA (4.5:1)
+   against --term-bg; terminal-light.test.ts computes and pins the ratios. Dark theme untouched.
+   The wrapper class out-ranks wterm's bare `.wterm.theme-light` rule whatever order CSS loads in. */
+.term-host .wterm.theme-light {
+  --term-fg: #383a42;
+  --term-bg: #fafafa;
+  --term-cursor: #2f4bd0;
+  --term-color-0: #383a42;
+  --term-color-1: #c4262e;
+  --term-color-2: #2f7a2d;
+  --term-color-3: #8a6100;
+  --term-color-4: #2c5fd8;
+  --term-color-5: #9a1f98;
+  --term-color-6: #00697f;
+  --term-color-7: #5f636d;
+  --term-color-8: #4b4e57;
+  --term-color-9: #a8142a;
+  --term-color-10: #1f6b1d;
+  --term-color-11: #765000;
+  --term-color-12: #1f4fc0;
+  --term-color-13: #7e1a7c;
+  --term-color-14: #005566;
+  --term-color-15: #34363d;
+}

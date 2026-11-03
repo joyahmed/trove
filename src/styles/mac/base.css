@@ -1,0 +1,265 @@
+/* Mac-only look: base. Every rule here is scoped under :root[data-os='macos'] (set by app.html only on a Mac),
+   so Windows and Linux never match.
+
+   ⭐ What lives here: the Mac TYPE (San Francisco at AppKit's sizes), the Mac ACCENT and control
+   tokens, and the SHARED CONTROLS — push buttons, switches, checkboxes, radios as a segmented
+   control, text fields, pop-up buttons and the focus ring. The dialog panels themselves are in
+   dialogs.css; Settings' layout, menus and panes have their own files.
+
+   ⛔ All of it is UNLAYERED on purpose. Tailwind's utilities sit in `@layer utilities`, and any
+   unlayered rule beats any layered one whatever its specificity — that is what lets one file
+   restyle a `bg-accent h-8 px-4` button without touching the markup the other platforms use.
+   ⚠️ The controls are found by what they already ARE (`role="switch"`, `role="radiogroup"`,
+   `bg-accent` on a button inside a dialog) rather than by new hooks, so this file adds no markup.
+   If a component renames those classes, the Mac look drops back to Fluent there — visible, not
+   broken. */
+
+/* ── Tokens ─────────────────────────────────────────────────────────────────────────────────── */
+:root[data-os='macos'] {
+  /* AppKit's own stack: San Francisco Text below 20pt, Display above, which -apple-system picks. */
+  --font-sans: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', Menlo, monospace;
+  /* AppKit's sizes: 13 body (the "regular" control size), 11 small, 10 mini. Tailwind reads its
+     text scale through these vars, so `text-sm` / `text-xs` land on the Mac sizes everywhere. */
+  --text-sm: 13px;
+  --text-sm--line-height: 16px;
+  --text-xs: 11px;
+  --text-xs--line-height: 14px;
+
+  /* controlAccentColor, the default (blue) accent. */
+  --mac-accent: #007aff;
+  --mac-destructive: #ff3b30;
+  --mac-focus-ring: rgb(0 122 255 / 0.5);
+  /* A push button's bezel: near-white with a hairline and a 1px drop, the way AppKit draws it. */
+  --mac-bezel: #ffffff;
+  --mac-bezel-pressed: #e4e4e4;
+  --mac-bezel-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.16), 0 0.5px 1.5px rgb(0 0 0 / 0.16);
+  --mac-default-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.08), 0 0.5px 1.5px rgb(0 0 0 / 0.2),
+    inset 0 0.5px 0 rgb(255 255 255 / 0.25);
+  /* text field: white well, a thin inset edge */
+  --mac-field: #ffffff;
+  --mac-field-edge: inset 0 0 0 0.5px rgb(0 0 0 / 0.22), inset 0 0.5px 0 rgb(0 0 0 / 0.06);
+  /* switch track when off, segmented-control trough */
+  --mac-track: rgb(0 0 0 / 0.09);
+  --mac-track-edge: inset 0 0 0 0.5px rgb(0 0 0 / 0.08);
+  --mac-segment-on: #ffffff;
+  --mac-segment-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.12), 0 1px 2px rgb(0 0 0 / 0.14);
+  --mac-knob-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.1), 0 1px 2.5px rgb(0 0 0 / 0.28);
+
+  /* The app's accent follows the Mac one, so every `bg-accent` / `text-accent` / ring on a Mac
+     is the system blue instead of Trove's indigo. White ink on it in both themes. */
+  --color-accent: var(--mac-accent);
+  --color-accent-text: #ffffff;
+}
+
+:root[data-os='macos'][data-theme='dark'] {
+  --mac-accent: #0a84ff;
+  --mac-destructive: #ff453a;
+  --mac-focus-ring: rgb(10 132 255 / 0.55);
+  --mac-bezel: rgb(255 255 255 / 0.2);
+  --mac-bezel-pressed: rgb(255 255 255 / 0.3);
+  --mac-bezel-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.3), inset 0 0.5px 0 rgb(255 255 255 / 0.12);
+  --mac-default-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.3), inset 0 0.5px 0 rgb(255 255 255 / 0.2);
+  --mac-field: rgb(255 255 255 / 0.06);
+  --mac-field-edge:
+    inset 0 0 0 0.5px rgb(255 255 255 / 0.18), inset 0 -0.5px 0 rgb(255 255 255 / 0.06);
+  --mac-track: rgb(255 255 255 / 0.14);
+  --mac-track-edge: inset 0 0 0 0.5px rgb(0 0 0 / 0.25);
+  --mac-segment-on: rgb(255 255 255 / 0.28);
+  --mac-segment-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.25), 0 1px 1.5px rgb(0 0 0 / 0.25);
+  --mac-knob-shadow: 0 0 0 0.5px rgb(0 0 0 / 0.2), 0 1px 2.5px rgb(0 0 0 / 0.4);
+  /* Repeated here because app.css's `:root[data-theme='dark']` (same specificity as the block
+     above, but later) sets the indigo #8ea2ff with black ink; this selector outranks it. */
+  --color-accent: var(--mac-accent);
+  --color-accent-text: #ffffff;
+}
+
+/* ── Type ───────────────────────────────────────────────────────────────────────────────────── */
+:root[data-os='macos'] body {
+  font-size: 13px;
+  line-height: 16px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ── Focus ring ─────────────────────────────────────────────────────────────────────────────── */
+/* ⛔ Overrides, never removes, app.css's dialog focus rule: Tab must still show where it landed.
+   AppKit's ring is the accent at half strength, ~3px, hugging the control's own corners. */
+:root[data-os='macos'] :is([role='dialog'], [role='alertdialog']) :focus-visible {
+  outline: 3px solid var(--mac-focus-ring);
+  outline-offset: 0;
+}
+
+/* ── Push buttons ───────────────────────────────────────────────────────────────────────────── */
+/* The text buttons inside dialogs and Settings: `bg-accent` = the default (blue) button,
+   `bg-critical` = a destructive default, `border-divider` = a plain push button. `[role]` is
+   excluded so the segmented choices (role=radio) below are not caught, and `[data-tile]` so a
+   card-shaped button (Customize's found-app cards) keeps its own height, padding and border. */
+:root[data-os='macos']
+  :is([role='dialog'], [role='alertdialog'])
+  button:is(.bg-accent, .bg-critical, .border-divider):not([role]):not([data-tile]) {
+  height: 24px;
+  min-width: 72px;
+  padding: 0 12px;
+  border: 0;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 16px;
+  color: var(--color-text);
+  background: var(--mac-bezel);
+  box-shadow: var(--mac-bezel-shadow);
+  opacity: 1;
+}
+:root[data-os='macos']
+  :is([role='dialog'], [role='alertdialog'])
+  button:is(.bg-accent, .bg-critical):not([role]) {
+  color: #ffffff;
+  background: linear-gradient(
+    to bottom,
+    color-mix(in srgb, var(--mac-accent) 88%, white),
+    var(--mac-accent)
+  );
+  box-shadow: var(--mac-default-shadow);
+}
+:root[data-os='macos'] :is([role='dialog'], [role='alertdialog']) button.bg-critical:not([role]) {
+  background: var(--mac-destructive);
+}
+/* AppKit buttons do not light up on hover; they darken while held. */
+:root[data-os='macos']
+  :is([role='dialog'], [role='alertdialog'])
+  button.border-divider:not([role]):not([data-tile]):active:not(:disabled) {
+  background: var(--mac-bezel-pressed);
+}
+:root[data-os='macos']
+  :is([role='dialog'], [role='alertdialog'])
+  button:is(.bg-accent, .bg-critical):not([role]):active:not(:disabled) {
+  filter: brightness(0.88);
+}
+:root[data-os='macos']
+  :is([role='dialog'], [role='alertdialog'])
+  button:is(.bg-accent, .bg-critical, .border-divider):not([role]):not([data-tile]):disabled {
+  opacity: 0.45;
+}
+
+/* ── Switch (role=switch, settings-parts/Toggle.svelte) ─────────────────────────────────────── */
+/* NSSwitch at the small size, 32×18: grey trough off, accent on, a white knob with a drop. */
+:root[data-os='macos'] [role='switch'] {
+  width: 32px;
+  height: 18px;
+  border: 0;
+  border-radius: 9px;
+  background: var(--mac-track);
+  box-shadow: var(--mac-track-edge);
+}
+:root[data-os='macos'] [role='switch'][aria-checked='true'] {
+  background: var(--mac-accent);
+  box-shadow: none;
+}
+:root[data-os='macos'] [role='switch'] > span {
+  width: 16px;
+  height: 16px;
+  left: 1px;
+  background: #ffffff;
+  box-shadow: var(--mac-knob-shadow);
+}
+:root[data-os='macos'] [role='switch'][aria-checked='true'] > span {
+  left: 15px;
+}
+
+/* ── Radio group as a segmented control (role=radiogroup, settings-parts/RadioRow.svelte) ──── */
+/* NSSegmentedControl, select-one: a recessed trough, the chosen segment raised out of it. */
+:root[data-os='macos'] [role='radiogroup'] {
+  gap: 0;
+  padding: 1px;
+  border-radius: 7px;
+  background: var(--mac-track);
+  box-shadow: var(--mac-track-edge);
+}
+:root[data-os='macos'] [role='radiogroup'] > [role='radio'] {
+  height: 20px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 16px;
+  color: var(--color-text);
+  background: transparent;
+}
+:root[data-os='macos'] [role='radiogroup'] > [role='radio'][aria-checked='true'] {
+  color: var(--color-text);
+  background: var(--mac-segment-on);
+  box-shadow: var(--mac-segment-shadow);
+}
+
+/* ── Checkboxes and native radios ───────────────────────────────────────────────────────────── */
+/* WKWebView already draws these as real AppKit checkboxes; only the accent and the dark
+   appearance need saying. ⚠️ `color-scheme` is set on the control, never on :root — on the root
+   it would give the transparent window an opaque dark canvas and kill the glass. */
+:root[data-os='macos'] input:is([type='checkbox'], [type='radio']) {
+  accent-color: var(--mac-accent);
+  width: 14px;
+  height: 14px;
+  margin: 0;
+}
+:root[data-os='macos'][data-theme='dark'] :is(input, select, textarea) {
+  color-scheme: dark;
+}
+
+/* ── Text fields ────────────────────────────────────────────────────────────────────────────── */
+/* NSTextField, rounded bezel: a white well, a thin inset edge, 22px tall, 5px corners, and the
+   blue ring OUTSIDE it whenever it has focus (AppKit shows it on any focus, not just Tab).
+   ⛔ A `bg-transparent` field is a borderless one sitting on its own panel (the Spotlight and
+   Find anything search line): it keeps its own size and stays see-through, or it shows up as a
+   white strip clamped to 22px on the glass. */
+:root[data-os='macos']
+  :is([role='dialog'], [role='alertdialog'])
+  :is(input:not([type]), input[type='text'], input[type='search'], textarea):not(.bg-transparent) {
+  height: 22px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 5px;
+  font-size: 13px;
+  background: var(--mac-field);
+  box-shadow: var(--mac-field-edge);
+}
+:root[data-os='macos'] :is([role='dialog'], [role='alertdialog']) textarea {
+  height: auto;
+  padding: 3px 6px;
+}
+:root[data-os='macos']
+  :is([role='dialog'], [role='alertdialog'])
+  :is(input:not([type]), input[type='text'], input[type='search'], textarea):not(
+    .bg-transparent
+  ):focus {
+  outline: 3px solid var(--mac-focus-ring);
+  outline-offset: 0;
+}
+/* The borderless search line has no ring of its own, like Spotlight's: it is the panel's only
+   field and holds the caret, so the ring would only draw a box round the whole line. */
+:root[data-os='macos']
+  :is([role='dialog'], [role='alertdialog'])
+  input.bg-transparent:is(:focus, :focus-visible) {
+  outline: none;
+}
+:root[data-os='macos'] :is([role='dialog'], [role='alertdialog']) input::placeholder {
+  color: var(--color-text-disabled);
+}
+
+/* ── Pop-up buttons (select) ────────────────────────────────────────────────────────────────── */
+/* NSPopUpButton: a push-button bezel with the ⌃⌄ pair at the right, in a blue cap. None ships
+   today; this is here so the first one looks right on day one. */
+:root[data-os='macos'] select {
+  appearance: none;
+  height: 22px;
+  padding: 0 24px 0 8px;
+  border: 0;
+  border-radius: 6px;
+  font-size: 13px;
+  color: var(--color-text);
+  background:
+    no-repeat right 3px center / 16px 16px
+      url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='4' fill='%23007aff'/%3E%3Cpath d='M5.5 6.5 8 4l2.5 2.5M5.5 9.5 8 12l2.5-2.5' fill='none' stroke='white' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E"),
+    var(--mac-bezel);
+  box-shadow: var(--mac-bezel-shadow);
+}

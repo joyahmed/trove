@@ -1,0 +1,5 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Trove Screen",
+  "identifier": "com.joyahmed.trove.screen"
+}

@@ -1,0 +1,419 @@
+/* Mac-only look: panes. Every rule here is scoped under :root[data-os='macos'] (set by app.html only on a Mac),
+   so Windows and Linux never match.
+
+   ⭐ FINDER, NOT EXPLORER: the file list, the sidebar, the Details / Preview pane and the status
+   bar, drawn the way Finder draws them. The structure stays Trove's; only paint, type and the
+   selection idiom change:
+     - selection is a rounded FILL — the system's selected-content blue with white text while the
+       list owns focus, the unemphasized grey when it does not (Finder's two states). No Fluent
+       accent bar on the left edge (`data-mac='sel-bar'` is hidden).
+     - type is 13 px for rows, 11 px for headers, labels and the status bar.
+     - the sidebar has Finder's section labels (11 px bold grey, chevron on hover at the right),
+       rows tinted with the accent, a grey rounded fill for the current place.
+     - the Details / Preview pane reads like Finder's preview column: a centred icon, a bold name,
+       then an "Information" block of label-left / value-right rows on hairlines.
+   ⚠️ ROW HEIGHT IS 24 PX (Finder). The details rows are virtualized and their pitch is JS
+   (`data/view-layouts.ts`, `detailsRowPx`: 24 on a Mac, 28 elsewhere); the `--spacing-row` override
+   in the file-list block below must match it or chunks gap / overlap. Change both together.
+   ⚠️ The selection blue is `-apple-system-selected-content-background` (WebKit-only system colour
+   that follows the user's accent): the hex before it is the fallback for any engine that drops it.
+   The grey and the hairlines are per app theme, because the app theme can differ from the OS one.
+   ⛔ These panes sit on the window glass (app.css, --glass-content); nothing here paints an opaque
+   background over them. */
+
+:root[data-os='macos'] {
+  --mac-sel: #0064e1;
+  --mac-sel-text: #ffffff;
+  --mac-sel-dim: rgb(0 0 0 / 0.1);
+  --mac-hover: rgb(0 0 0 / 0.04);
+  --mac-hairline: rgb(0 0 0 / 0.1);
+  --mac-label: rgb(0 0 0 / 0.5);
+  --mac-tint: #007aff;
+}
+:root[data-os='macos'][data-theme='dark'] {
+  --mac-sel: #0058d0;
+  --mac-sel-dim: rgb(255 255 255 / 0.12);
+  --mac-hover: rgb(255 255 255 / 0.05);
+  --mac-hairline: rgb(255 255 255 / 0.1);
+  --mac-label: rgb(255 255 255 / 0.55);
+  --mac-tint: #0a84ff;
+}
+
+/* ---------- shared: no Fluent accent bar anywhere on a Mac ---------- */
+:root[data-os='macos'] [data-mac='sel-bar'] {
+  display: none;
+}
+
+/* ---------- file list ---------- */
+:root[data-os='macos'] [data-mac='file-list'] {
+  --spacing-row: 24px; /* = MAC_DETAILS_ROW_PX in data/view-layouts.ts */
+  font-size: 13px;
+}
+
+/* column headers: sentence case, 11 px grey, hairline under, short dividers between columns */
+:root[data-os='macos'] [data-mac='colhead'] {
+  border-bottom: 1px solid var(--mac-hairline);
+}
+:root[data-os='macos'] [data-mac='colhead'] button {
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--mac-label);
+  gap: 4px;
+}
+:root[data-os='macos'] [data-mac='colhead'] button:hover {
+  background-color: transparent;
+  color: var(--color-text);
+}
+:root[data-os='macos'] [data-mac='colhead'] button:has(.mac-sort-chevron) {
+  font-weight: 600;
+  color: var(--color-text);
+}
+:root[data-os='macos'] [data-mac='colhead'] button:focus-visible {
+  outline: 2px solid var(--mac-tint);
+  outline-offset: -2px;
+  border-radius: 4px;
+}
+/* Finder puts the sort chevron AFTER the label, at the column's far edge */
+:root[data-os='macos'] [data-mac='colhead'] .mac-sort-chevron {
+  position: static;
+  transform: none;
+  order: 1;
+  margin-left: auto;
+  width: 9px !important;
+  height: 9px !important;
+  color: var(--mac-label);
+}
+:root[data-os='macos'] [data-mac='colhead'] button.justify-end .mac-sort-chevron {
+  margin-left: 4px;
+}
+:root[data-os='macos'] [data-mac='colhead'] .mac-sort-chevron svg {
+  width: 9px;
+  height: 9px;
+  stroke-width: 2.25;
+}
+/* the resize grip doubles as Finder's column divider (it is bg-clip-content: 1 px wide) */
+:root[data-os='macos'] [data-mac='colhead'] > div > div {
+  top: 4px;
+  bottom: 4px;
+  background-color: var(--mac-hairline);
+}
+
+/* rows (details view and list view): hover is a whisper, selection is the rounded fill */
+:root[data-os='macos'] [data-mac='file-list'] [role='row'][aria-selected] {
+  border-radius: 5px;
+}
+:root[data-os='macos'] [data-mac='file-list'] [role='row'][aria-selected='false']:hover {
+  background-color: var(--mac-hover);
+}
+:root[data-os='macos']
+  [data-mac='file-list']
+  [role='row'][aria-selected='true']:not([data-mac='tile']) {
+  background-color: var(--mac-sel-dim);
+}
+:root[data-os='macos']
+  [data-mac='file-list']
+  [role='grid']:focus-within
+  [role='row'][aria-selected='true']:not([data-mac='tile']) {
+  background-color: var(--mac-sel);
+  background-color: -apple-system-selected-content-background;
+  color: var(--mac-sel-text);
+}
+/* the secondary text in a selected, emphasized row turns white too, as in Finder */
+:root[data-os='macos']
+  [data-mac='file-list']
+  [role='grid']:focus-within
+  [role='row'][aria-selected='true']:not([data-mac='tile'])
+  .text-text-secondary {
+  color: rgb(255 255 255 / 0.85);
+}
+/* a run of selected rows is one block: square the touching corners */
+:root[data-os='macos']
+  [data-mac='file-list']
+  [role='row'][aria-selected='true']:not([data-mac='tile']):has(
+    + [role='row'][aria-selected='true']
+  ) {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+:root[data-os='macos']
+  [data-mac='file-list']
+  [role='row'][aria-selected='true']:not([data-mac='tile'])
+  + [role='row'][aria-selected='true'] {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+/* the infotip lives inside the row's DOM: it must not inherit the white selected text */
+:root[data-os='macos'] [data-mac='file-list'] [role='row'] [role='tooltip'] {
+  color: var(--color-text);
+}
+/* the rename box sits in a selected row too: keep the field's own ink, not the row's white. In
+   Light the glass field over the blue fill read as a pale-blue box with white text; Finder's
+   rename well is opaque white there. Dark's glass field already reads as a dark well. */
+:root[data-os='macos'] [data-mac='file-list'] [role='row'] input[type='text'] {
+  color: var(--color-text);
+}
+:root[data-os='macos']:not([data-theme='dark'])
+  [data-mac='file-list']
+  [role='row']
+  input[type='text'] {
+  background-color: var(--mac-field);
+}
+/* the cursor row (keyboard focus) of a selection keeps a visible ring, inside the fill */
+:root[data-os='macos'] [data-mac='file-list'] [role='grid']:focus-visible [data-cursor='true'] {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--mac-tint) 55%, transparent);
+}
+:root[data-os='macos']
+  [data-mac='file-list']
+  [role='grid']:focus-visible
+  [role='row'][aria-selected='true'][data-cursor='true']:not([data-mac='tile']) {
+  box-shadow: inset 0 0 0 2px rgb(255 255 255 / 0.45);
+}
+
+/* group headings: Finder's are 12 px bold, the count grey */
+:root[data-os='macos'] [data-mac='file-list'] [role='row']:not([aria-selected]) .text-sm {
+  font-size: 12px;
+}
+
+/* icons view: no plate, no tile fill. Selected = a rounded grey behind the icon and a blue pill
+   (grey when the list is not focused) behind the name. */
+:root[data-os='macos'] [data-mac='tile'] {
+  border-radius: 6px;
+}
+:root[data-os='macos'] [data-mac='tile'],
+:root[data-os='macos'] [data-mac='tile']:hover,
+:root[data-os='macos'] [data-mac='tile'][aria-selected='true'] {
+  background-color: transparent;
+  --tw-inset-ring-shadow: 0 0 #0000;
+}
+:root[data-os='macos'] [data-mac='tile-icon'] {
+  background-color: transparent;
+  border-radius: 6px;
+}
+:root[data-os='macos'] [data-mac='tile']:hover [data-mac='tile-icon'] {
+  background-color: var(--mac-hover);
+}
+:root[data-os='macos'] [data-mac='tile'][aria-selected='true'] [data-mac='tile-icon'] {
+  background-color: var(--mac-sel-dim);
+}
+:root[data-os='macos'] [data-mac='tile-name'] {
+  align-self: center;
+  width: auto;
+  max-width: 100%;
+  padding: 0 5px;
+  border-radius: 4px;
+  font-size: 12px;
+}
+:root[data-os='macos'] [data-mac='tile'][aria-selected='true'] [data-mac='tile-name'] {
+  background-color: var(--mac-sel-dim);
+}
+:root[data-os='macos']
+  [data-mac='file-list']
+  [role='grid']:focus-within
+  [data-mac='tile'][aria-selected='true']
+  [data-mac='tile-name'] {
+  background-color: var(--mac-sel);
+  background-color: -apple-system-selected-content-background;
+  color: var(--mac-sel-text);
+}
+:root[data-os='macos']
+  [data-mac='file-list']
+  [role='grid']:focus-visible
+  [data-mac='tile'][data-cursor='true']
+  [data-mac='tile-icon'] {
+  box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--mac-tint) 55%, transparent);
+}
+
+/* ---------- sidebar ---------- */
+:root[data-os='macos'] [data-mac='sidebar'] {
+  font-size: 13px;
+  padding-left: 10px;
+  padding-top: 6px;
+}
+/* Finder separates sections by their label alone, no rule */
+:root[data-os='macos'] [data-mac='sidebar-sep'] {
+  height: 0;
+  margin: 6px 0 0;
+  background: transparent;
+}
+/* section label: 11 px bold grey; the fold chevron moves to the right and shows on hover */
+:root[data-os='macos'] [data-mac='sidebar-head'] {
+  height: 26px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--mac-label);
+  gap: 4px;
+  padding-left: 8px;
+}
+:root[data-os='macos'] [data-mac='sidebar-head'] button {
+  padding-left: 0;
+}
+:root[data-os='macos'] [data-mac='sidebar-head'],
+:root[data-os='macos'] [data-mac='sidebar-head'] button,
+:root[data-os='macos'] [data-mac='sidebar-head']:hover,
+:root[data-os='macos'] [data-mac='sidebar-head'] button:hover {
+  background-color: transparent;
+}
+:root[data-os='macos'] [data-mac='sidebar-head'] .text-text-secondary {
+  color: inherit;
+}
+:root[data-os='macos'] [data-mac='head-chevron'] {
+  order: 2;
+  margin-left: auto;
+  margin-right: 4px;
+  opacity: 0;
+}
+:root[data-os='macos'] [data-mac='sidebar']:hover [data-mac='head-chevron'],
+:root[data-os='macos'] [data-mac='sidebar-head']:focus-visible [data-mac='head-chevron'],
+:root[data-os='macos'] [data-mac='sidebar-head'] :focus-visible [data-mac='head-chevron'] {
+  opacity: 1;
+}
+/* in the two-button header the chevron is its own button: put it after the label */
+:root[data-os='macos'] div[data-mac='sidebar-head'] > button:has([data-mac='head-chevron']) {
+  order: 2;
+  padding-left: 0;
+}
+/* the title button (Drives): 4 px of room inside it, pulled back by 4 px so the word stays put,
+   or the inset focus ring below draws over its first letter */
+:root[data-os='macos'] div[data-mac='sidebar-head'] > button:not(:has([data-mac='head-chevron'])) {
+  padding-left: 4px;
+  margin-left: -4px;
+}
+:root[data-os='macos'] [data-mac='sidebar-head'] :focus-visible,
+:root[data-os='macos'] button[data-mac='sidebar-head']:focus-visible {
+  outline: 2px solid var(--mac-tint);
+  outline-offset: -2px;
+  border-radius: 5px;
+}
+
+/* rows: 26 px, 13 px, accent-tinted line icons, grey rounded fill for the current place */
+:root[data-os='macos'] [data-mac='sidebar-row'] {
+  height: 26px;
+  gap: 6px;
+  padding-left: 6px;
+  border-radius: 5px;
+  font-size: 13px;
+}
+:root[data-os='macos'] [data-mac='sidebar-row'].pl-8 {
+  padding-left: 22px;
+}
+:root[data-os='macos'] [data-mac='sidebar-row']:hover {
+  background-color: transparent;
+}
+:root[data-os='macos'] [data-mac='sidebar-row']:active {
+  background-color: var(--mac-hover);
+}
+:root[data-os='macos'] [data-mac='sidebar-row'][data-active='true'] {
+  background-color: var(--mac-sel-dim);
+}
+:root[data-os='macos']
+  [data-mac='sidebar']:focus-within
+  [data-mac='sidebar-row'][data-active='true'] {
+  background-color: color-mix(in srgb, var(--mac-tint) 24%, transparent);
+}
+:root[data-os='macos'] [data-mac='sidebar-row']:focus-visible {
+  outline: 2px solid var(--mac-tint);
+  outline-offset: -2px;
+}
+/* the empty chevron gutter in front of a leaf row eats space Finder does not spend */
+:root[data-os='macos'] [data-mac='sidebar-row'] > .w-3:empty {
+  width: 0;
+  margin-right: -6px;
+}
+:root[data-os='macos'] .mac-sidebar-icon svg {
+  color: var(--mac-tint);
+  color: -apple-system-control-accent;
+}
+:root[data-os='macos'] [data-mac='sidebar-row'] .text-xs {
+  font-size: 11px;
+}
+
+/* ---------- Details / Preview pane: Finder's preview column ---------- */
+:root[data-os='macos'] [data-mac='pane'] {
+  font-size: 11px;
+}
+:root[data-os='macos'] [data-mac='info-head'] {
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: 6px;
+  padding-top: 8px;
+}
+:root[data-os='macos'] [data-mac='info-head'] > div {
+  max-width: 100%;
+}
+:root[data-os='macos'] [data-mac='info-head'] .text-base,
+:root[data-os='macos'] [data-mac='preview-name'] h2 {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+:root[data-os='macos'] [data-mac='preview-name'] {
+  align-items: center;
+  text-align: center;
+}
+:root[data-os='macos'] [data-mac='preview-name'] p {
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--mac-label);
+}
+:root[data-os='macos'] [data-mac='info-head'] .text-text-secondary {
+  font-size: 11px;
+  color: var(--mac-label);
+}
+/* the "Information" block: a bold heading, then label-left / value-right rows on hairlines */
+:root[data-os='macos'] [data-mac='info-grid'] {
+  /* a gap-x utility on the grid broke the hairline between label and value */
+  gap: 0 !important;
+  border-top: 0;
+  padding-top: 0;
+  font-size: 11px;
+}
+:root[data-os='macos'] [data-mac='info-grid']::before {
+  content: 'Information' / '';
+  grid-column: 1 / -1;
+  padding: 0 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text);
+  border-bottom: 1px solid var(--mac-hairline);
+}
+:root[data-os='macos'] [data-mac='info-grid'] > * {
+  padding: 5px 0;
+  border-bottom: 1px solid var(--mac-hairline);
+}
+:root[data-os='macos'] [data-mac='info-grid'] > :nth-child(odd) {
+  color: var(--mac-label);
+  padding-right: 12px;
+}
+:root[data-os='macos'] [data-mac='info-grid'] > :nth-child(even) {
+  text-align: right;
+}
+:root[data-os='macos'] [data-mac='info-attrs'] {
+  border-top: 0;
+  padding-top: 0;
+}
+:root[data-os='macos'] [data-mac='info-attrs'] > .text-text-secondary {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--color-text);
+}
+:root[data-os='macos'] [data-mac='preview-box'] {
+  border-radius: 8px;
+  background-color: transparent;
+}
+
+/* ---------- status bar: 11 px grey ---------- */
+:root[data-os='macos'] .rounded-window footer {
+  font-size: 11px;
+  color: var(--mac-label);
+  justify-content: center;
+}
+:root[data-os='macos'] .rounded-window footer > :first-child {
+  flex: 0 1 auto;
+}
+:root[data-os='macos'] .rounded-window footer .font-mono {
+  font-family: inherit;
+  color: inherit;
+}

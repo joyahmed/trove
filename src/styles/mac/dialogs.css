@@ -1,0 +1,188 @@
+/* Mac-only look: dialogs. Every rule here is scoped under :root[data-os='macos'] (set by app.html only on a Mac),
+   so Windows and Linux never match.
+
+   ⭐ Confirm, Conflict and Customize drawn as AppKit draws them:
+     Confirm    a modern NSAlert — 260 wide, the app icon centred on top, bold 13px title, 11px
+                message, two equal buttons side by side with Cancel left and the default right.
+     Conflict   the wider alert with an accessory list — the icon on the LEFT, text and the three
+                answers in a column beside it, Cancel bottom-right.
+     Customize  a sheet-sized window: same fill and corners, a table-bezel list, AppKit buttons.
+   Shared to all three: a frosted `windowBackgroundColor` fill, 12px corners, a hairline edge and
+   the long soft window shadow, over a much lighter scrim than Fluent's 40 % black.
+   ⚠️ The panels are found by their `aria-labelledby` ids, which the components already carry for
+   screen readers, so this file adds no markup. Settings' panel is settings.css's; only the shared
+   scrim rule below reaches it.
+   ⛔ Unlayered on purpose, like base.css: it must beat the `bg-layer`, `rounded-dialog`,
+   `shadow-flyout`, `w-[420px]` and `p-5` utilities the other platforms keep. */
+
+:root[data-os='macos'] {
+  --mac-window-fill: rgb(236 236 236 / 0.86);
+  --mac-window-edge: 0 0 0 0.5px rgb(0 0 0 / 0.22);
+  --mac-window-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.22), 0 20px 60px rgb(0 0 0 / 0.3), 0 6px 18px rgb(0 0 0 / 0.14);
+  --mac-scrim: rgb(0 0 0 / 0.12);
+  --mac-table-fill: #ffffff;
+  --mac-table-edge: 0 0 0 0.5px rgb(0 0 0 / 0.18);
+}
+:root[data-os='macos'][data-theme='dark'] {
+  --mac-window-fill: rgb(44 44 46 / 0.88);
+  --mac-window-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.6), inset 0 0 0 0.5px rgb(255 255 255 / 0.14),
+    0 20px 60px rgb(0 0 0 / 0.5), 0 6px 18px rgb(0 0 0 / 0.3);
+  --mac-scrim: rgb(0 0 0 / 0.28);
+  --mac-table-fill: rgb(255 255 255 / 0.04);
+  --mac-table-edge: 0 0 0 0.5px rgb(255 255 255 / 0.12);
+}
+
+/* ── Scrim: every dialog's backdrop, Settings' included ─────────────────────────────────────── */
+:root[data-os='macos'] [role='presentation']:has(> :is([role='dialog'], [role='alertdialog'])) {
+  background-color: var(--mac-scrim);
+}
+
+/* ── The panel: shared to the three ─────────────────────────────────────────────────────────── */
+:root[data-os='macos']
+  :is(
+    [aria-labelledby='confirm-title'],
+    [aria-labelledby='conflict-title'],
+    [aria-labelledby='customize-title']
+  ) {
+  border: 0;
+  border-radius: 12px;
+  background: var(--mac-window-fill);
+  -webkit-backdrop-filter: blur(40px) saturate(1.8);
+  backdrop-filter: blur(40px) saturate(1.8);
+  box-shadow: var(--mac-window-shadow);
+  font-size: 13px;
+  line-height: 16px;
+}
+:root[data-os='macos']
+  :is(
+    [aria-labelledby='confirm-title'],
+    [aria-labelledby='conflict-title'],
+    [aria-labelledby='customize-title']
+  )
+  h2 {
+  font-size: 13px;
+  line-height: 16px;
+  font-weight: 700;
+}
+
+/* The app icon an NSAlert carries. A pseudo-element, so no markup and nothing on other platforms. */
+:root[data-os='macos']
+  :is([aria-labelledby='confirm-title'], [aria-labelledby='conflict-title'])::before {
+  content: '';
+  display: block;
+  width: 64px;
+  height: 64px;
+  background: url('/favicon.png') center / contain no-repeat;
+}
+
+/* ── Confirm: the compact, centred alert ────────────────────────────────────────────────────── */
+:root[data-os='macos'] [aria-labelledby='confirm-title'] {
+  width: 260px;
+  padding: 20px 16px 16px;
+  text-align: center;
+}
+:root[data-os='macos'] [aria-labelledby='confirm-title']::before {
+  margin: 0 auto 12px;
+}
+:root[data-os='macos'] [aria-labelledby='confirm-title'] h2 {
+  margin-bottom: 6px;
+}
+:root[data-os='macos'] [aria-labelledby='confirm-title'] p {
+  margin-bottom: 16px;
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--color-text);
+}
+/* Two buttons side by side, DOM order kept: Cancel left, the default right. Equal while both
+   labels fit; a long label ("Move to Recycle Bin") widens its own column instead of wrapping onto
+   a second line the fixed 28px height would cut off. */
+:root[data-os='macos'] [aria-labelledby='confirm-title'] > div:last-child {
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(max-content, 1fr);
+  gap: 8px;
+}
+:root[data-os='macos'] [aria-labelledby='confirm-title'] > div:last-child > button {
+  height: 28px;
+  min-width: 0;
+  white-space: nowrap;
+}
+
+/* ── Conflict: the wide alert, icon on the left ─────────────────────────────────────────────── */
+:root[data-os='macos'] [aria-labelledby='conflict-title'] {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr);
+  column-gap: 16px;
+  width: 440px;
+  padding: 20px;
+}
+:root[data-os='macos'] [aria-labelledby='conflict-title']::before {
+  grid-column: 1;
+  grid-row: 1 / span 5;
+}
+:root[data-os='macos'] [aria-labelledby='conflict-title'] > * {
+  grid-column: 2;
+}
+:root[data-os='macos'] [aria-labelledby='conflict-title'] h2 {
+  margin-bottom: 6px;
+}
+:root[data-os='macos'] [aria-labelledby='conflict-title'] > p {
+  margin-bottom: 6px;
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--color-text);
+}
+:root[data-os='macos'] [aria-labelledby='conflict-title'] > ul {
+  margin-bottom: 12px;
+  font-size: 11px;
+  line-height: 14px;
+}
+/* The three answers: tall push buttons, label over its explanation. */
+:root[data-os='macos'] [aria-labelledby='conflict-title'] > div.flex-col {
+  gap: 6px;
+}
+:root[data-os='macos'] [aria-labelledby='conflict-title'] > div.flex-col > button {
+  padding: 5px 10px 6px;
+  border-radius: 6px;
+  background: var(--mac-bezel);
+  box-shadow: var(--mac-bezel-shadow);
+}
+:root[data-os='macos'] [aria-labelledby='conflict-title'] > div.flex-col > button:active {
+  background: var(--mac-bezel-pressed);
+}
+:root[data-os='macos']
+  [aria-labelledby='conflict-title']
+  > div.flex-col
+  > button
+  > span:last-child {
+  font-size: 11px;
+  line-height: 14px;
+}
+:root[data-os='macos'] [aria-labelledby='conflict-title'] > div:last-child {
+  margin-top: 16px;
+}
+
+/* ── Customize: the sheet-sized window ──────────────────────────────────────────────────────── */
+/* The size rule (width/height ranges, max caps) is the component's and stays; only the skin moves. */
+:root[data-os='macos'] [aria-labelledby='customize-title'] {
+  padding: 16px 20px 20px;
+}
+:root[data-os='macos'] [aria-labelledby='customize-title'] h2 + p {
+  font-size: 11px;
+  line-height: 14px;
+}
+/* the close button: a small round glyph button, no Fluent square hover */
+:root[data-os='macos'] [aria-labelledby='customize-title'] button[aria-label='Close'] {
+  width: 22px;
+  height: 22px;
+  border-radius: 11px;
+}
+/* The commands list: an NSTableView in a bezel — white well, hairline edge, 6px corners. */
+:root[data-os='macos'] [aria-labelledby='customize-title'] > div.overflow-auto {
+  border: 0;
+  border-radius: 6px;
+  background: var(--mac-table-fill);
+  box-shadow: var(--mac-table-edge);
+}

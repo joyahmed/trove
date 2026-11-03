@@ -1,0 +1,146 @@
+/* Mac-only look: menus. Every rule here is scoped under :root[data-os='macos'] (set by app.html only on a Mac),
+   so Windows and Linux never match. */
+
+/* What it draws: the context menu, its flyouts and the toolbar "More" menu (all ui/Menu.svelte) as a native
+   macOS menu - frosted panel, 22px rows, 13px system text, an accent-blue highlight with white text.
+   Hooks are data attributes Menu.svelte carries for this file only (data-menu-panel / -check / -icon / -label /
+   -hint / -chevron); they change no behaviour. The Fluent classes on the same elements stay for Windows and
+   Linux; the rules here out-rank them (unlayered, and one extra attribute in every selector).
+
+   ONE highlight, same as Fluent: a row lights on :focus only, and the pointer focuses the row it is on, so the
+   mouse and the keys can never light two rows. The row whose flyout is open stays blue (as on a Mac) only while
+   no other row in ITS panel has focus - the flyout lives in <body>, so focus inside it does not count. */
+
+:root[data-os='macos'] {
+  --mac-menu-bg: rgb(246 246 246 / 0.8);
+  --mac-menu-border: rgb(0 0 0 / 0.12);
+  --mac-menu-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.05), 0 10px 32px rgb(0 0 0 / 0.18), 0 2px 8px rgb(0 0 0 / 0.08);
+  --mac-menu-text: rgb(0 0 0 / 0.85);
+  --mac-menu-secondary: rgb(0 0 0 / 0.45);
+  --mac-menu-disabled: rgb(0 0 0 / 0.26);
+  --mac-menu-separator: rgb(0 0 0 / 0.1);
+  --mac-menu-accent: #007aff;
+}
+
+:root[data-os='macos'][data-theme='dark'] {
+  --mac-menu-bg: rgb(40 40 40 / 0.75);
+  --mac-menu-border: rgb(255 255 255 / 0.14);
+  --mac-menu-shadow:
+    0 0 0 0.5px rgb(0 0 0 / 0.6), 0 10px 32px rgb(0 0 0 / 0.45), 0 2px 8px rgb(0 0 0 / 0.25);
+  --mac-menu-text: rgb(255 255 255 / 0.88);
+  --mac-menu-secondary: rgb(255 255 255 / 0.45);
+  --mac-menu-disabled: rgb(255 255 255 / 0.25);
+  --mac-menu-separator: rgb(255 255 255 / 0.12);
+  --mac-menu-accent: #0a84ff;
+}
+
+/* the panel: frosted, hairline edge, soft shadow, narrower than Explorer's 300px */
+:root[data-os='macos'] [data-menu-panel] {
+  min-width: 220px;
+  padding-block: 5px;
+  border: 1px solid var(--mac-menu-border);
+  border-radius: 8px;
+  background-color: var(--mac-menu-bg);
+  -webkit-backdrop-filter: blur(30px) saturate(1.8);
+  backdrop-filter: blur(30px) saturate(1.8);
+  box-shadow: var(--mac-menu-shadow);
+  color: var(--mac-menu-text);
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 16px;
+  letter-spacing: -0.01em;
+}
+
+/* rows: 22px, 5px inset from the panel edge, 5px inner radius */
+:root[data-os='macos'] [data-menu-panel] [data-menu-row] {
+  height: 22px;
+  margin-inline: 5px;
+  padding-inline: 4px 10px;
+  border-radius: 5px;
+  color: inherit;
+}
+:root[data-os='macos'] [data-menu-panel] [data-menu-sub] {
+  width: calc(100% - 10px);
+}
+
+/* columns: check, icon, label, hint - tightened to Mac proportions */
+:root[data-os='macos'] [data-menu-panel] [data-menu-check] {
+  width: 12px;
+}
+:root[data-os='macos'] [data-menu-panel] [data-menu-check] svg {
+  width: 10px;
+  height: 10px;
+  stroke-width: 3;
+}
+:root[data-os='macos'] [data-menu-panel] [data-menu-icon] {
+  width: 14px;
+  height: 14px;
+  margin-left: 4px;
+}
+:root[data-os='macos'] [data-menu-panel] [data-menu-icon] > span,
+:root[data-os='macos'] [data-menu-panel] [data-menu-icon] svg,
+:root[data-os='macos'] [data-menu-panel] [data-menu-icon] img {
+  width: 14px !important; /* Glyph sets its box inline */
+  height: 14px !important;
+}
+:root[data-os='macos'] [data-menu-panel] [data-menu-label] {
+  margin-left: 7px;
+}
+:root[data-os='macos'] [data-menu-panel] [data-menu-hint] {
+  padding-left: 24px;
+  color: var(--mac-menu-secondary);
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+:root[data-os='macos'] [data-menu-panel] [data-menu-chevron] {
+  padding-left: 24px;
+  justify-self: end;
+  color: var(--mac-menu-secondary);
+}
+:root[data-os='macos'] [data-menu-panel] [data-menu-chevron] > span,
+:root[data-os='macos'] [data-menu-panel] [data-menu-chevron] svg {
+  width: 11px !important;
+  height: 11px !important;
+  stroke-width: 2.5;
+}
+
+/* separators: 1px hairline, ~10px side insets */
+:root[data-os='macos'] [data-menu-panel] [role='separator'] {
+  height: 1px;
+  margin: 5px 10px;
+  background-color: var(--mac-menu-separator);
+}
+
+/* disabled */
+:root[data-os='macos'] [data-menu-panel] [data-menu-row]:disabled,
+:root[data-os='macos'] [data-menu-panel] [data-menu-row]:disabled [data-menu-hint] {
+  color: var(--mac-menu-disabled);
+}
+:root[data-os='macos'] [data-menu-panel] [data-menu-row]:disabled img {
+  opacity: 0.4;
+}
+
+/* the one highlight: accent blue across the row, everything in it white. The Fluent open-flyout class
+   (bg-subtle-hover) is neutralised so it cannot add a second, grey highlight. */
+:root[data-os='macos'] [data-menu-panel] [data-menu-row].bg-subtle-hover {
+  background-color: transparent;
+}
+:root[data-os='macos'] [data-menu-panel] [data-menu-row]:focus,
+:root[data-os='macos']
+  [data-menu-panel]:not(:has([data-menu-row]:focus))
+  [data-menu-row][aria-expanded='true'] {
+  background-color: var(--mac-menu-accent);
+  color: #fff;
+}
+:root[data-os='macos'] [data-menu-panel] [data-menu-row]:focus [data-menu-hint],
+:root[data-os='macos'] [data-menu-panel] [data-menu-row]:focus [data-menu-chevron],
+:root[data-os='macos']
+  [data-menu-panel]:not(:has([data-menu-row]:focus))
+  [data-menu-row][aria-expanded='true']
+  [data-menu-chevron] {
+  color: #fff;
+}

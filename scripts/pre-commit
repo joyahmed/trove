@@ -1,0 +1,11 @@
+#!/bin/sh
+# Trove pre-commit: every staged file must pass prettier, the same check `bun run lint` runs,
+# so a docs-only commit cannot turn the gate red. Installed by scripts/install-git-hook.ts.
+if [ -z "$(git diff --cached --name-only --diff-filter=ACMR)" ]; then
+	exit 0
+fi
+git diff --cached --name-only -z --diff-filter=ACMR |
+	xargs -0 bunx prettier --check --ignore-unknown --log-level warn || {
+	echo "pre-commit: prettier failed on the files above. Run: bunx prettier --write <file>" >&2
+	exit 1
+}

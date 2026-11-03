@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "bundle": {
+    "targets": ["deb", "appimage"],
+    "category": "Utility",
+    "linux": {
+      "deb": {
+        "files": {
+          "/usr/share/metainfo/com.joyahmed.trove.metainfo.xml": "linux/com.joyahmed.trove.metainfo.xml"
+        }
+      },
+      "appimage": {
+        "files": {
+          "/usr/share/metainfo/com.joyahmed.trove.metainfo.xml": "linux/com.joyahmed.trove.metainfo.xml"
+        }
+      }
+    }
+  }
+}

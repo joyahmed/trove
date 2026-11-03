@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "palette",
+  "description": "The Spotlight palette window: events in and out, nothing else — showing, hiding, sizing and placing it are done by Rust commands.",
+  "windows": ["palette"],
+  "permissions": ["core:default", "opener:default", "log:default"]
+}

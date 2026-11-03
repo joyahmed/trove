@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Merged into the bundle's Info.plist by Tauri (it looks for an Info.plist beside tauri.conf.json;
+  macOS only). Declares that Trove can open folders, so Finder offers "Open With → Trove" on a
+  folder and the Dock icon accepts a dropped folder. Rank Alternate: offered, never the default.
+  The folder arrives as RunEvent::Opened - see src/commands/dock.rs.
+-->
+<plist version="1.0">
+<dict>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeName</key>
+      <string>Folder</string>
+      <key>CFBundleTypeRole</key>
+      <string>Viewer</string>
+      <key>LSHandlerRank</key>
+      <string>Alternate</string>
+      <key>LSItemContentTypes</key>
+      <array>
+        <string>public.folder</string>
+      </array>
+    </dict>
+  </array>
+  <key>NSDocumentsFolderUsageDescription</key>
+  <string>Trove shows the files in your Documents folder when you open it.</string>
+  <key>NSDesktopFolderUsageDescription</key>
+  <string>Trove shows the files on your Desktop when you open it.</string>
+  <key>NSDownloadsFolderUsageDescription</key>
+  <string>Trove shows the files in your Downloads folder when you open it.</string>
+  <key>NSAppleEventsUsageDescription</key>
+  <string>Trove asks Finder to move files to the Trash and to put them back, so it works the same as Finder.</string>
+  <key>NSNetworkVolumesUsageDescription</key>
+  <string>Trove shows the files on a network drive when you open it.</string>
+  <key>NSRemovableVolumesUsageDescription</key>
+  <string>Trove shows the files on a USB stick or external drive when you open it.</string>
+</dict>
+</plist>

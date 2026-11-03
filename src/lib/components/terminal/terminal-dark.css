@@ -1,0 +1,31 @@
+/* Trove's dark terminal palette: Solarized Dark with every colour that sat under WCAG AA (4.5:1) on
+   #002b36 lifted just enough to clear it, hue kept. wterm's stock values had red 3.25, blue 4.08,
+   magenta 3.30, bright black 2.79 (prompts draw dim text with it), bright red 3.26, bright green
+   2.79, bright yellow 3.37 and bright magenta 3.43.
+   Black (0) is a dim grey-blue at 3.2:1 on purpose: prompts use it for de-emphasised text, so it
+   must stay readable (stock #073642 was 1.15:1, invisible) but quieter than real text.
+   Bright 9-14 are brighter versions of 1-6 in the same hue (stock bright yellow/blue/cyan were
+   Solarized greys, bright magenta was lavender, bright red was orange), so a prompt that uses
+   bright colours keeps its meaning.
+   terminal-light.test.ts computes and pins the ratios and hues. */
+.term-host .wterm.theme-solarized-dark {
+  --term-fg: #839496;
+  --term-bg: #002b36;
+  --term-cursor: #93a1a1;
+  --term-color-0: #5f7881;
+  --term-color-1: #f56764;
+  --term-color-2: #859900;
+  --term-color-3: #b58900;
+  --term-color-4: #3a9be0;
+  --term-color-5: #ea6a9d;
+  --term-color-6: #2aa198;
+  --term-color-7: #eee8d5;
+  --term-color-8: #7f959f;
+  --term-color-9: #ff7b78;
+  --term-color-10: #9bb800;
+  --term-color-11: #e0a800;
+  --term-color-12: #62b4f5;
+  --term-color-13: #f47fb0;
+  --term-color-14: #3fd2c6;
+  --term-color-15: #fdf6e3;
+}

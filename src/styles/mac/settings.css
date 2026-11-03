@@ -1,0 +1,190 @@
+/* Mac-only look: settings. Every rule here is scoped under :root[data-os='macos'] (set by app.html only on a Mac),
+   so Windows and Linux never match. */
+
+/* ⭐ WHAT THIS IS: the Settings dialog laid out like macOS System Settings — a source list on
+   the left (13 px rows, a coloured rounded-square icon per section, the chosen row filled with
+   the accent), the section title bold on the right, and the rows in ONE "inset grouped" box with
+   inset hairlines between them, label left / control right, an 11 px grey line under the label.
+   ⛔ Layout only. The controls inside the rows (switches, segmented radios, buttons, the hotkey
+   recorder) belong to base.css / dialogs.css; nothing here touches their shape or colour.
+   ⛔ The dialog stays SOLID: it sits outside `.rounded-window`, so the --glass-* swaps never reach
+   it, and nothing below makes a surface transparent.
+   Hooks it keys on (all additive, unstyled outside this file): SettingsDialog.svelte —
+   .settings-dialog / -nav / -nav-title / -nav-item[data-section] / -nav-marker / -content /
+   -header / -title / -close / -body / -group; SettingRow.svelte — .settings-row / -row-text /
+   -row-label / -row-desc / -row-note, and the stepper row's .settings-stepper / -stepper-btn / -stepper-value / -stepper-reset.
+   ⚠️ Unlayered on purpose, like app.css's Mac block: it must beat the Tailwind utilities
+   already on those elements (h-9, px-3, text-lg, border-b, …). */
+
+:root[data-os='macos'] .settings-dialog {
+  /* the two Mac fills, as tokens so light and dark only swap values */
+  --mac-set-sidebar: var(--color-mica);
+  --mac-set-group: rgb(255 255 255 / 0.55);
+  --mac-set-group-edge: rgb(58 50 38 / 0.07);
+  --mac-set-sep: rgb(58 50 38 / 0.1);
+  font-size: 13px;
+  letter-spacing: -0.003em;
+}
+:root[data-os='macos'][data-theme='dark'] .settings-dialog {
+  --mac-set-group: rgb(255 255 255 / 0.045);
+  --mac-set-group-edge: rgb(255 255 255 / 0.06);
+  --mac-set-sep: rgb(255 255 255 / 0.08);
+}
+
+/* ---------- the source list ---------- */
+
+:root[data-os='macos'] .settings-nav {
+  width: 216px;
+  padding: 14px 10px;
+  gap: 2px;
+  background-color: var(--mac-set-sidebar);
+}
+/* "Settings" becomes the source list's group header: 11 px, bold, grey — the way a Mac sidebar
+   labels its sections. It stays the dialog's accessible name (aria-labelledby). */
+:root[data-os='macos'] .settings-nav-title {
+  margin: 0 0 6px;
+  padding: 0 8px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 16px;
+  color: var(--color-text-secondary);
+}
+:root[data-os='macos'] .settings-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 8px 0 5px;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 16px;
+}
+:root[data-os='macos'] .settings-nav-item:hover {
+  background-color: transparent;
+}
+:root[data-os='macos'] .settings-nav-item[aria-current='page'] {
+  background-color: var(--color-accent);
+  color: var(--color-accent-text);
+}
+:root[data-os='macos'] .settings-nav-item:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--color-accent) 55%, transparent);
+  outline-offset: 0;
+}
+/* The Fluent 3 px pill marks the chosen row on Windows; on a Mac the filled row says it. */
+:root[data-os='macos'] .settings-nav-marker {
+  display: none;
+}
+
+/* The coloured rounded-square icon. White line glyphs on a System Settings colour, drawn as a
+   background image so no markup or icon font is needed. Unknown section keys get a grey square. */
+:root[data-os='macos'] .settings-nav-item::before {
+  content: '';
+  flex: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 5px;
+  background-color: #8e8e93;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: 14px 14px;
+  box-shadow: inset 0 0 0 0.5px rgb(0 0 0 / 0.08);
+}
+:root[data-os='macos'] .settings-nav-item[data-section='general']::before {
+  background-color: #8e8e93;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.5' stroke-linecap='round'%3E%3Ccircle cx='8' cy='8' r='2.2'/%3E%3Cpath d='M8 1.8v1.6M8 12.6v1.6M1.8 8h1.6M12.6 8h1.6M3.6 3.6l1.1 1.1M11.3 11.3l1.1 1.1M3.6 12.4l1.1-1.1M11.3 4.7l1.1-1.1'/%3E%3C/svg%3E");
+}
+:root[data-os='macos'] .settings-nav-item[data-section='behaviour']::before {
+  background-color: #0a84ff;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='white'%3E%3Cpath d='M4 2.5l8.5 6-3.7.6 2.1 4.1-1.5.8-2.1-4.1L4 12.6z'/%3E%3C/svg%3E");
+}
+:root[data-os='macos'] .settings-nav-item[data-section='appearance']::before {
+  background-color: #1c1c1e;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='5.6' fill='none' stroke='white' stroke-width='1.5'/%3E%3Cpath d='M8 2.4a5.6 5.6 0 0 1 0 11.2z' fill='white'/%3E%3C/svg%3E");
+}
+:root[data-os='macos'][data-theme='dark'] .settings-nav-item[data-section='appearance']::before {
+  box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.18);
+}
+:root[data-os='macos'] .settings-nav-item[data-section='quick-access']::before {
+  background-color: #30b0c7;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.5' stroke-linejoin='round'%3E%3Crect x='2' y='3' width='12' height='10' rx='2'/%3E%3Cpath d='M6.2 3v10'/%3E%3C/svg%3E");
+}
+:root[data-os='macos'] .settings-nav-item[data-section='context-menu']::before {
+  background-color: #ff9f0a;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M3 4.5h10M3 8h10M3 11.5h6.5'/%3E%3C/svg%3E");
+}
+:root[data-os='macos'] .settings-nav-item[data-section='advanced']::before {
+  background-color: #636366;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.5' stroke-linecap='round'%3E%3Cpath d='M3 4.5h10M3 11.5h10'/%3E%3Ccircle cx='10.5' cy='4.5' r='1.6' fill='%23636366'/%3E%3Ccircle cx='5.5' cy='11.5' r='1.6' fill='%23636366'/%3E%3C/svg%3E");
+}
+
+/* ---------- the content side ---------- */
+
+:root[data-os='macos'] .settings-header {
+  padding: 18px 20px 12px;
+}
+:root[data-os='macos'] .settings-title {
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 24px;
+  letter-spacing: -0.012em;
+}
+:root[data-os='macos'] .settings-body {
+  padding: 0 20px 20px;
+}
+
+/* The inset grouped box: one per section, 10 px corners, a faint fill and a hairline edge. */
+:root[data-os='macos'] .settings-group {
+  border-radius: 10px;
+  background-color: var(--mac-set-group);
+  box-shadow: inset 0 0 0 0.5px var(--mac-set-group-edge);
+  overflow: hidden;
+}
+
+/* A row: separators are inset 10 px from BOTH edges, the way System Settings draws them —
+   so the row carries the inset as margin and the hairline is its own bottom border. */
+:root[data-os='macos'] .settings-row {
+  min-height: 40px;
+  margin: 0 10px;
+  padding: 9px 0;
+  column-gap: 16px;
+  border-bottom-color: var(--mac-set-sep);
+}
+:root[data-os='macos'] .settings-row-label {
+  font-size: 13px;
+  line-height: 16px;
+}
+:root[data-os='macos'] .settings-row-desc,
+:root[data-os='macos'] .settings-row-note {
+  font-size: 11px;
+  line-height: 14px;
+  margin-top: 2px;
+}
+
+/* Dark: the System Settings sidebar sits a step LIGHTER than the content, and dark mica equals
+   the layer closely enough that the two halves merged into one slab. */
+:root[data-os='macos'][data-theme='dark'] .settings-dialog {
+  --mac-set-sidebar: color-mix(in srgb, var(--color-mica) 94%, white);
+}
+
+/* ---------- the Text size stepper: a compact − / + pair, not two 32 px squares ---------- */
+
+:root[data-os='macos'] .settings-stepper {
+  gap: 0;
+}
+:root[data-os='macos'] .settings-stepper-btn {
+  width: 24px;
+  height: 22px;
+  border-radius: 5px;
+}
+:root[data-os='macos'] .settings-stepper-value {
+  width: auto;
+  min-width: 44px;
+  padding: 0 6px;
+  font-size: 12px;
+}
+:root[data-os='macos'] .settings-stepper-reset {
+  height: 22px;
+  margin-left: 8px;
+  padding: 0 8px;
+  font-size: 12px;
+}

@@ -1,0 +1,160 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!--
+    ████ ARCHIVE — NOT THE SOURCE OF TRUTH. DO NOT RENDER THIS INTO src-tauri/icons. ████
+
+    This file is the REJECTED notched-box mark, kept only as a record of what was tried,
+    what it cost, and why it lost. Trove's shipping icon is the FOLDER + GEM, and its
+    source of truth is docs/brand/icon.py — a Pillow script, not an SVG. Regenerate
+    assets from that file; the recipe and the build-staleness warning live in its header.
+
+    THE DECISION, 2026-09-26. Joy kept saying he liked "the current one" while disliking
+    the icon on the running app. He was comparing two different designs without knowing
+    it: his PINNED taskbar button was still drawing the OLD folder-with-a-gem mark out of
+    a stale Windows shell icon cache, while the RUNNING button drew this notched box.
+    Matched pixel-for-pixel — the pinned button against `git show fff42db:icon.ico` at
+    32→24 px — mean abs diff 3.12/255. Shown both marks side by side and asked directly,
+    he chose the folder + gem. fff42db's assets were restored verbatim: every icon file
+    came back byte-identical, and icon.py reproduces the 1024 master with 0 of 1048576
+    pixels differing.
+
+    So THREE commits of icon work are rejected, not just the tone:
+      095d107  a quieter mark            ⛔ the notched box, first cut (#927544)
+      0518d0a  stops being a hollow U    ⛔ the notched box, solid silhouette
+      e55ba38  goes gold by saturation   ⛔ the notched box, #aa8013
+    Both the SHAPE (a notched box) and the GOLD (#aa8013) were rejected by Joy in favour
+    of the original folder + gem. Whoever revisits this must not repeat these four passes.
+
+    The three tones below were each measured and each rejected for a different reason —
+    that part of the record is worth keeping even though the shape is gone, because the
+    taskbar-contrast problem is real and the same trap is waiting for any future flat
+    one-colour mark. Note that the folder + gem sidesteps it entirely: the gold does not
+    have to carry the mark alone, so it can stay at the app's own folder value instead of
+    being darkened until it reads as cardboard. The blue gem carries the contrast.
+
+    ─────────────────────────────────────────────────────────────────────────────────────
+    What follows is the original file's own commentary, unchanged, as written when this
+    mark was still the shipping one. Read "shipped" below as "shipped, then reverted".
+    ─────────────────────────────────────────────────────────────────────────────────────
+
+    Trove's mark: a closed keep — one solid mass with one slot cut from its top edge.
+
+    Regenerate every app asset from this file:
+      (render this SVG to docs/brand/trove-icon-1024.png at 1024x1024, transparent)
+      bunx tauri icon docs/brand/trove-icon-1024.png -o src-tauri/icons
+      (delete src-tauri/icons/android and src-tauri/icons/ios — this repo ships Windows only)
+      (and re-cut static/favicon.png at 128x128 from the same master)
+
+    There is no SVG rasteriser on this machine (no resvg, rsvg-convert, Inkscape,
+    ImageMagick, cairosvg, sharp) and none was added. The master was reproduced from
+    the geometry below with Pillow at 16x supersampling and checked against the
+    committed master: 548 pixels of 1048576 differed, max alpha delta 21/255, all of
+    them on the four corner radii — straight edges identical, because every edge here
+    is a multiple of 64. A TONE-ONLY change therefore does not need a rasteriser at
+    all: the master's alpha channel IS the geometry, so repaint RGB wherever alpha > 0
+    and leave alpha untouched. That keeps a tone edit to exactly one visual variable.
+
+    THEN FORCE THE WINDOWS RESOURCE TO REBUILD, OR YOU WILL SHIP THE OLD ICON:
+      rm -rf src-tauri/target/*/build/trove-* src-tauri/target/release/trove.exe
+      bun run build:exe
+
+    tauri_build::build() emits rerun-if-changed for tauri.conf.json and capabilities and
+    nothing else. Emitting any such directive switches off cargo's default "re-run if any
+    file in the package changed", so src-tauri/icons/ is watched by nothing: edit icon.ico
+    alone and cargo keeps the stale build-script output (out/resource.lib, which has the
+    previous icon baked in) and relinks it into a brand-new binary. The build is green, the
+    hashes agree, and the exe carries the old mark. This has already shipped once (c14d2c9).
+    `cargo clean -p trove` is NOT enough — it leaves target/*/build/trove-*/out/resource.lib
+    and the old exe in place. Delete those paths by hand, as above.
+
+    Then prove it from the artefact, never from the PNGs on disk: parse trove.exe's PE
+    resource directory, pull the RT_ICON entries, and check they are byte-identical to
+    src-tauri/icons/icon.ico's entries. The tray icon is separate — tray.rs embeds
+    icons/32x32.png via include_image!, which stores it decoded, so look for that file's
+    raw RGBA in the binary rather than its PNG bytes.
+
+    Why it is shaped this way — each of these was decided by rendering at 16 px and looking:
+
+    THE MASS WINS, THE COUNTER IS A DETAIL. The first cut of this mark gave the opening
+    512 x 320 out of an 896 x 704 body: more than half the width and nearly half the
+    height. At 16 px that leaves two 3 px walls and a 5 px floor, and the box is gone —
+    it reads as a hollow U, a cup, a shopping basket. Not a trove. The slot is now
+    448 x 192, about a quarter of the body's area, so the silhouette is a mass first and
+    an opening second. Ink survives the taskbar; thin arms do not.
+
+    ONE SHAPE, NO INNER LINES. The opening is cut out of the silhouette (hence the mask)
+    rather than drawn beside or inside it. There is no lid seam, no band, no lock, no
+    highlight — every one of those is sub-pixel at 16 px and only muddies the edge. A
+    literal chest profile was tried twice as a fully solid outline (a domed lid over a
+    narrower body, at two overhangs): with no seam to carry the idea it reads as a bread
+    loaf at one proportion and a table lamp at the other. Without an inner line, "chest"
+    is not reachable; "keep with a slot in the top" is, and it is the same product idea.
+
+    EVERY EDGE IS A MULTIPLE OF 64. The icon is rasterised at 16 px, where 1024/16 = 64.
+    Snapping the geometry to that grid puts every edge on a whole pixel, so the 16 px
+    render is hard-edged instead of a grey smear. Keep this property when editing:
+    64, 128, 192, 288, 352, 384, 736, 832, 896, 960 are all on-grid or on a half-step.
+    The corner radius is 64 (one whole pixel at 16 px), not 128: at 128 the box softened
+    into a generic rounded app icon, and the squarer corner is what says "crate".
+    The slot's inner radius is deliberately half a pixel (32): at a full radius the recess
+    read as a rounded scoop — a cup — rather than a squared-off opening in a box.
+
+    LANDSCAPE, SQUARISH CORNERS. A portrait body with a round bottom and a rectangular
+    opening reads as a handbag (Microsoft Store already owns that shape). Wider than tall
+    with a 64 px radius reads as a box. The slot is cut into the top edge rather than
+    arched above it, so there is no handle to mistake it for.
+
+    ONE FLAT TONE, AND IT IS A CHROMA PROBLEM, NOT A LIGHTNESS ONE. The tone is
+    #aa8013 — hsl(43, 80%, 37%). It is the app's folder token (#ffd76a, src/app.css)
+    held at the same hue and darkened, NOT desaturated: hue 43 against the token's 44.
+    No gloss, bevel, shadow or gradient — a darker wall was tried for depth and read as
+    damage; an off-centre opening read as a mistake.
+
+    Measure on the two Windows 11 taskbar grounds, #f3f3f3 (light) and #202020 (dark);
+    every number below is WCAG relative contrast against those two. THREE tones were
+    rejected, each for a reason worth not rediscovering:
+
+      #927544  hsl 38 36% 42%   light 3.90  dark 3.76   ⛔ brown cardboard
+      #ffd76a  hsl 44 100% 71%  light 1.25  dark 11.78  ⛔ gone on a light taskbar
+      #b18f52  hsl 39 38% 51%   light 2.73  dark 5.37   ⛔ PALER cardboard
+      #aa8013  hsl 43 80% 37%   light 3.26  dark 4.50   ⛔ shipped, then rejected by Joy
+                                                           2026-09-26 — see the banner
+                                                           at the top of this file. The
+                                                           tone was never the problem;
+                                                           the SHAPE was. A flat
+                                                           one-colour silhouette has to
+                                                           win on contrast alone, and
+                                                           that is the fight this whole
+                                                           table is a record of losing.
+
+    #927544 was picked when the mark was mostly hole. Once 0518d0a made it a solid mass
+    the same tone filled four times the area and read as brown cardboard — balanced on
+    both grounds (3.90 / 3.76) and dull on both.
+
+    #ffd76a, the raw folder token, is NOT viable and must not be retried: 1.25:1 on a
+    light taskbar, which is below the 1.5:1 at which a shape stops being locatable at
+    all. It vanishes. Its 11.78:1 on dark is why it looks so tempting in the app, where
+    it only ever sits on a dark surface. The taskbar is not that surface.
+
+    #b18f52 was the obvious next guess and it is the wrong axis. It moves LIGHTNESS
+    (42% → 51%) and leaves saturation alone (36% → 38%), so it is the same brown with
+    milk in it — and it pays 3.90 → 2.73 on light for the privilege, crossing under the
+    3:1 floor WCAG sets for non-text graphics. Rendered at 16 px on #f3f3f3 it is the
+    weakest of every tone tried. Lightening does not undo cardboard; cardboard is low
+    chroma, so only chroma undoes it.
+
+    #aa8013 doubles the saturation (36% → 80%) and holds lightness near where it was
+    (42% → 37%). That is what buys the gold: both grounds stay over 3:1 (3.26 light,
+    4.50 dark) and the dark ground is better than it ever was. Saturating further is
+    possible — hsl(38, 100%, 35%) = #b27100 measures 3.60 / 4.08 — but at full
+    saturation the hue slides off gold into caramel. 80% is the last stop that still
+    reads as the folder token's metal.
+
+    If you edit this tone, keep both grounds above 3:1 and keep the hue in 40–45.
+  -->
+  <mask id="opening">
+    <rect width="1024" height="1024" fill="#000"/>
+    <rect x="64" y="192" width="896" height="704" rx="64" fill="#fff"/>
+    <path d="M288 192 H736 V352 A32 32 0 0 1 704 384 H320 A32 32 0 0 1 288 352 Z" fill="#000"/>
+  </mask>
+  <rect width="1024" height="1024" fill="#aa8013" mask="url(#opening)"/>
+</svg>

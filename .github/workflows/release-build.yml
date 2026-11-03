@@ -1,0 +1,237 @@
+# Release builds for Windows, Ubuntu and Mac (plan 22: 22.1.1, 22.3.1, 22.4.1).
+#
+# ⛔ Runs ONLY by hand (Actions tab -> "Run workflow") or on a `v*` tag. Never on push or pull
+# request: the repo is private, so every minute is billed, and a macOS minute costs 10x.
+# ⛔ Outputs are workflow ARTIFACTS only. No GitHub Release, nothing published anywhere, no
+# secrets used. Making a draft release in `trove-releases` is a later step (plan 22), on purpose
+# not here.
+name: Release build
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  # Updater signing (JOY Q9, not decided yet). When it is, add the key as a repo secret and
+  # uncomment these two lines; `tauri build` then signs the updater bundles.
+  # TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+  # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
+jobs:
+  # The same gate the pre-commit hook runs: check, lint, vitest, vite build, fmt, clippy,
+  # cargo test. Ubuntu only (cheapest minutes); the builds below wait for it.
+  gate:
+    name: Gate (bun run gate)
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux build deps (Tauri 2 prerequisites)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl wget file \
+            libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.15
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+          key: gate
+
+      - run: bun install --frozen-lockfile
+
+      - run: bun run gate
+
+  windows:
+    name: Windows setup.exe (NSIS)
+    needs: gate
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.15
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: bun install --frozen-lockfile
+      # Remap only covers rustc's own paths. The tauri context path is dropped by building with
+      # `tauri build` (custom-protocol feature on), never plain `cargo build --release`.
+      - name: Drop build-machine paths from the binary (plan 22.0.4)
+        shell: bash
+        run: echo "CARGO_ENCODED_RUSTFLAGS=$(bun scripts/remap-flags.ts --encoded)" >> "$GITHUB_ENV"
+
+      # tauri.conf.json: bundle targets nsis, currentUser install, nsis-hooks.nsh.
+      - run: bun run build:installer
+
+      - name: No build-machine path in the binary (plan 22.0.4)
+        shell: bash
+        run: bun scripts/path-leak-check.ts src-tauri/target/release/trove.exe
+
+      - name: Size and SHA-256
+        shell: bash
+        run: |
+          cd src-tauri/target/release/bundle/nsis
+          ls -l *.exe
+          sha256sum *.exe | tee SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trove-windows-x64
+          path: |
+            src-tauri/target/release/bundle/nsis/*-setup.exe
+            src-tauri/target/release/bundle/nsis/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  linux:
+    name: Ubuntu .deb + AppImage
+    needs: gate
+    # Oldest glibc we support: a binary built here runs on newer distros, not the other way.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env:
+      # linuxdeploy is itself an AppImage; extract-and-run avoids needing FUSE on the runner
+      # (the only way it has been built so far).
+      APPIMAGE_EXTRACT_AND_RUN: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux build deps (Tauri 2 prerequisites + checks)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential curl wget file \
+            libwebkit2gtk-4.1-dev libxdo-dev libssl-dev \
+            libayatana-appindicator3-dev librsvg2-dev \
+            desktop-file-utils
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.15
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: bun install --frozen-lockfile
+      # Remap only covers rustc's own paths. The tauri context path is dropped by building with
+      # `tauri build` (custom-protocol feature on), never plain `cargo build --release`.
+      - name: Drop build-machine paths from the binary (plan 22.0.4)
+        shell: bash
+        run: echo "CARGO_ENCODED_RUSTFLAGS=$(bun scripts/remap-flags.ts --encoded)" >> "$GITHUB_ENV"
+
+      # On Linux tauri merges src-tauri/tauri.linux.conf.json: targets deb + appimage.
+      - run: bun run tauri build
+
+      - name: No build-machine path in the binary (plan 22.0.4)
+        shell: bash
+        run: bun scripts/path-leak-check.ts src-tauri/target/release/trove
+
+      # Plan 22.3.1 proof in one call: glibc floor <= 2.35 (this runner), ldd 0 "not found",
+      # desktop-file-validate exit 0 (as G.65), control fields present, one AppStream file.
+      - name: Check the .deb (glibc, ldd, desktop file, control, metainfo)
+        shell: bash
+        run: bun scripts/linux-package-check.ts src-tauri/target/release/bundle/deb/*.deb
+
+      - name: Size and SHA-256
+        run: |
+          cd src-tauri/target/release/bundle
+          ls -l deb/*.deb appimage/*.AppImage
+          sha256sum deb/*.deb appimage/*.AppImage | tee SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trove-linux-x64
+          path: |
+            src-tauri/target/release/bundle/deb/*.deb
+            src-tauri/target/release/bundle/appimage/*.AppImage
+            src-tauri/target/release/bundle/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14
+
+  macos:
+    name: Mac universal .dmg (ad-hoc signed)
+    needs: gate
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.2.15
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - run: bun install --frozen-lockfile
+      # Remap only covers rustc's own paths. The tauri context path is dropped by building with
+      # `tauri build` (custom-protocol feature on), never plain `cargo build --release`.
+      - name: Drop build-machine paths from the binary (plan 22.0.4)
+        shell: bash
+        run: echo "CARGO_ENCODED_RUSTFLAGS=$(bun scripts/remap-flags.ts --encoded)" >> "$GITHUB_ENV"
+
+      # tauri.macos.conf.json is merged: targets app + dmg. signingIdentity "-" = ad-hoc sign
+      # (no Apple account, plan 22.4.1 free path); users take the "Open Anyway" step.
+      - name: Build universal .dmg
+        run: >-
+          bun run tauri build --target universal-apple-darwin
+          --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}'
+
+      - name: No build-machine path in the binary (plan 22.0.4)
+        shell: bash
+        run: bun scripts/path-leak-check.ts src-tauri/target/universal-apple-darwin/release/trove
+
+      - name: Check signature, size and SHA-256
+        run: |
+          set -euo pipefail
+          cd src-tauri/target/universal-apple-darwin/release/bundle
+          sig=$(codesign -dv macos/*.app 2>&1)
+          echo "$sig"
+          echo "$sig" | grep "Signature=adhoc"
+          lipo -archs macos/*.app/Contents/MacOS/*
+          ls -l dmg/*.dmg
+          shasum -a 256 dmg/*.dmg | tee SHA256SUMS.txt
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: trove-macos-universal
+          path: |
+            src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+            src-tauri/target/universal-apple-darwin/release/bundle/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 14

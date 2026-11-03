@@ -1,0 +1,707 @@
+@import 'tailwindcss';
+@import './styles/mac/base.css';
+@import './styles/mac/settings.css';
+@import './styles/mac/dialogs.css';
+@import './styles/mac/menus.css';
+@import './styles/mac/panes.css';
+@import './styles/mac/contrast.css';
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/* Bundled fonts (OFL-1.1, see LICENSES/): the Latin and Latin-ext subsets from fontsource @5.3.0.
+   The stacks in `@theme` keep the old system fonts as fallback, so a failed load looks as before. */
+@font-face {
+  font-family: 'Instrument Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 700;
+  src: url('/fonts/instrument-sans-latin-ext-wght-normal.woff2') format('woff2-variations');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Instrument Sans';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400 700;
+  src: url('/fonts/instrument-sans-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('/fonts/instrument-serif-latin-ext-400-normal.woff2') format('woff2');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'Instrument Serif';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 400;
+  src: url('/fonts/instrument-serif-latin-400-normal.woff2') format('woff2');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url('/fonts/jetbrains-mono-latin-ext-wght-normal.woff2') format('woff2-variations');
+  unicode-range:
+    U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+    U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F,
+    U+A720-A7FF;
+}
+
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-display: swap;
+  font-weight: 100 800;
+  src: url('/fonts/jetbrains-mono-latin-wght-normal.woff2') format('woff2-variations');
+  unicode-range:
+    U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+    U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/* Fluent tokens, measured pixel-by-pixel against a real Win11 Explorer screenshot. No Windows
+   or Linux window asks the OS for a backdrop any more (see the `--radius-window` note below), so
+   the shell root paints --color-mica itself for the title and nav rows (on a Mac the explorer
+   windows have the system's glass and that fill becomes a tint — the MAC ONLY block below); everything below sits on --color-layer,
+   the content surface, with --color-flyout for anything that floats above it.
+
+   ⭐ THE SURFACE RAMP. Four steps, darkest chrome to brightest field, and nothing in a
+   component may paint a literal surface colour:
+
+     --color-mica    the window's own ground: title bar, nav row, Settings' rail, Spotlight
+     --color-layer   the content surface: file list, sidebar, panes, DIALOGS
+     --color-flyout  a SMALL card floating on live content: menu, toast, hover card, drag ghost
+     --color-field   an input well: address bar, search box, rename box
+
+   ⚠️ A dialog is on --color-layer, not --color-flyout, and the difference is the point of the
+   whole change. The flyout lift exists so a 300px menu can be found on top of a busy list; a
+   modal is 880×560 and already sits on a `bg-black/40` scrim (measured: the shell behind
+   Settings composites to #8e8c88), so it needs no lift — and giving it one put the single
+   brightest large surface in the app back on screen, which is exactly what we were removing.
+   Tried both, looked at both: `docs/screenshots/light-mode/`.
+
+   ⚠️ LIGHT MODE IS A DELIBERATE DEPARTURE FROM WIN11, recorded here so it is not mistaken for
+   drift. Joy, 2026-09-25: _"ah the light ui is so hurting. too much white"_ — and he was right;
+   `docs/plans/01-mvp-shell.md` had an open box saying the light tokens were typed from Fluent
+   and had never been looked at by a human. Win11 light is #f3f3f3 chrome against #fbfbfb
+   content against #ffffff fields: three shades of white, a 1.07:1 chrome→content step, and a
+   full-bleed file list at relative luminance 0.96 that is simply a lamp pointed at your face.
+   Trove's light mode is warm paper instead — same Fluent structure, every step taken down and
+   given a warm cast, and **no pure #ffffff anywhere**:
+
+     surface  Win11     Trove     relative luminance
+     mica     #f3f3f3 → #e2dfd7   0.896 → 0.739
+     layer    #fbfbfb → #edeae3   0.965 → 0.824   ← ~85 % of the window
+     flyout   (= layer) #f6f4ef   0.965 → 0.905
+     field    #ffffff → #faf8f4   1.000 → 0.940
+
+   ⛔ The glare was NOT fixed by dimming the text — that is the classic wrong trade, and it
+   makes a UI harder to read while feeling calmer. Body text on the content surface stays at
+   14.5:1 (was 16.7:1, both an order of magnitude past AA's 4.5:1) and **secondary text and
+   disabled text came out BETTER than before**: 6.17 → 6.06:1 secondary (AA either way) and
+   2.53 → 3.16:1 disabled, because the ground moved and the ink moved with it. The whole
+   table is in the session handoff; nothing in the app is below AA that was above it before.
+   ⚠️ Dark mode is untouched — every value below is overridden in the dark block, and eleven
+   dark renders were sampled against the pre-change build and came back byte-identical.
+
+   ⭐ THE LAST GLARE SOURCE IS NOW OURS, and that is the second half of this fix. `4547588`
+   softened every surface the CSS owned, but while the main window carried `windowEffects:
+   ["mica"]` DWM painted the title and nav rows itself with the system's light Mica — a
+   near-white no token could reach — so the top ~88 px stayed as bright as it ever was for
+   anyone with Transparency effects ON (the Windows default). 2026-09-25: Mica was dropped from
+   every window, so `--color-mica` really is the chrome now and the light fix is complete for
+   every user rather than only those with transparency off. Measured on the render: the top band
+   is #e2dfd7, the same value the Settings rail and Spotlight already asked for by name.
+
+   ⚠️ The alphas are a warm near-black, not pure black. Black at 8 % over a warm ground
+   composites to a COOL grey, which is what makes a warm palette look muddy; `rgb(58 50 38)`
+   keeps a hairline on the same hue as the paper it divides. */
+@theme {
+  --font-sans: 'Instrument Sans', 'Segoe UI Variable Text', 'Segoe UI', system-ui, sans-serif;
+  --font-serif: 'Instrument Serif', Georgia, serif;
+  --font-mono: 'JetBrains Mono', 'Cascadia Mono', Consolas, ui-monospace, monospace;
+
+  --color-text: #1c1a17;
+  --color-text-secondary: #5b564e;
+  --color-text-disabled: #8a8276;
+  --color-accent: #2f4bd0;
+  --color-accent-text: #ffffff;
+  --color-mica: #e2dfd7;
+  --color-layer: #edeae3;
+  --color-flyout: #f6f4ef;
+  --color-field: #faf8f4;
+  --color-field-stroke: rgb(58 50 38 / 0.09);
+  --color-tab-active: #edeae3;
+  --color-subtle-hover: rgb(64 50 30 / 0.06);
+  --color-subtle-pressed: rgb(64 50 30 / 0.03);
+  --color-subtle-selected: rgb(64 50 30 / 0.09);
+
+  /* ⭐ THE SELECTION CHIP, and why it is NOT `--color-subtle-selected`.
+     `--color-subtle-selected` has three unrelated jobs across ~40 call sites: "this toggle is
+     on" (CommandButton, StatusBar, SidebarItem, the Settings nav), "this is a skeleton
+     placeholder" (Shell, PaneHost, TerminalHost) and "this list item is selected". Only the
+     third wants selection strength; raising the shared token to reach it would make every
+     toggle in the chrome shout. So selection gets its own pair and the shared token is
+     untouched.
+
+     ⛔ WHY THE OLD GRID SELECTION LOOKED LIKE A FOCUS RING. It was `bg-subtle-selected` plus
+     `outline-accent outline-1`, and the two halves were wildly out of balance:
+       · the fill, white 8 % over #191919, composites to #2b2b2b — **1.24:1** against the layer,
+         i.e. all but invisible;
+       · the stroke, `--color-accent` #60cdff, is **9.8:1** against that same layer.
+     The border therefore carried ~8× the signal of the fill: a saturated cyan contour drawn
+     around a box that looked empty, which the eye reads as a focus indicator, not a selection.
+     Three things made it worse than its nominal 1px suggests — none of them the width:
+       1. a CSS `outline` paints OUTSIDE the border box, so the stroke never sits on the fill;
+          it sits on the bare layer, at maximum contrast, reading as a ring detached from the tile;
+       2. an outline's arc is the box radius EXPANDED by offset+width, so a 10px tile gets an
+          11px ring — a hair looser than the thing it surrounds, which is what makes it read
+          "around" rather than "of";
+       3. grid tiles are 4px apart (`view-layouts.ts`), so two neighbouring outlines close to
+          within 2px and the grid reads boxed-in.
+     (DPI was checked and ruled out: this machine is at 100 %, 1 CSS px = 1 device px.)
+
+     ⭐ Measured off a real Win11 Explorer window, dark, Large icons, one item selected and
+     focused, at 100 % scale (`G:\...\docs\screenshots` capture, 2026-09-26):
+       fill    #505050  = white 24 % over the #191919 ground → 2.18:1 against it
+       stroke  #c3c3c3  1px, NEUTRAL — there is no accent anywhere in the chip
+       radius  ~1-2px (Explorer's items view is still DirectUI, so its corners are square)
+       the fill runs under the two-line label; no shadow.
+     Explorer's structure, then, is: the FILL says "selected" and a neutral 1px rim says
+     "focused". That is what is copied here. The amplitude is taken down a step (dark 20 %, not
+     24 %) to sit with Trove's quieter palette, and the rim is kept far softer than Explorer's
+     — Joy asked for a "barely-there edge", and Explorer's #c3c3c3 (≈66 % white over its own
+     fill) is not that. But it must not vanish either: the rim is the ONLY thing separating "the
+     cursor is here" from "this is also selected" in a multi-selection, and a 14 % rim rendered
+     indistinguishable from no rim at all. A 14/20/28/40/55 ladder was rendered on both grounds
+     and looked at; 28 % white reads as a soft edge without a glint, and light ink bites harder
+     per percent, so light stops at 24 %.
+     ⚠️ The 10px radius is NOT matched to Explorer's square corner on purpose: see the corner
+     scale below, where this repo already records corners as a deliberate departure.
+     ⚠️ Light has no Explorer measurement behind it — the reference capture was dark only —
+     so its 13 % warm ink was chosen by rendering the same five-step ladder on #edeae3 and
+     looking: 20 % and up goes muddy on warm paper, which is why light is not 20 %. */
+  --color-selection: rgb(64 50 30 / 0.13);
+  --color-selection-stroke: rgb(58 50 38 / 0.24);
+  --color-divider: rgb(58 50 38 / 0.1);
+  --color-close-hover: #c42b1c;
+  --color-critical: #c42b1c;
+  /* A drive getting full (sidebar usage bar, 80-90% used): amber, before --color-critical at 90%.
+     #a86200 is 3.96:1 on --color-layer #edeae3, the 3:1 floor for a graphic. */
+  --color-caution: #a86200;
+  --color-folder: #ffd76a;
+  --color-folder-shade: #f0b93b;
+  /* File-type tints for the drawn file icons off Windows (plan 14, data/file-categories.ts).
+     One accent per category; text, config, app, font, database, cert and disk images stay
+     mono (--color-text-secondary). Light values clear 3:1 against --color-layer #edeae3; the
+     dark overrides clear it against #191919. */
+  --color-ftype-document: #2563c9;
+  --color-ftype-pdf: #c4342a;
+  --color-ftype-spreadsheet: #1f7a46;
+  --color-ftype-presentation: #c2541a;
+  --color-ftype-image: #0e7c86;
+  --color-ftype-video: #7c45c8;
+  --color-ftype-audio: #b8327a;
+  --color-ftype-archive: #94650f;
+  --color-ftype-code: #4f55c9;
+
+  /* ⭐ THE CORNER SCALE. Six roles, one place, and nothing in a component may write a literal
+     radius — so "make it rounder" stays one edit here rather than a hunt through 80 files.
+     Current macOS, not Big Sur: Joy asked for mac corners on 2026-09-25 and then for more.
+     ⚠️ A deliberate departure from the Explorer-parity floor in PLAN.md, corners only. Every
+     other measurement in this file still matches a real Win11 Explorer window.
+
+     ⛔ A CSS radius only draws a corner where NOTHING ELSE paints that corner, and two things
+     on Windows want to:
+     · **An OS backdrop is painted by DWM into the full, SQUARE window rect.** A rounded box on
+       a Mica window therefore rounds nothing — the corner you "rounded" is filled back in by
+       the backdrop, at the same colour the box is painted. Measured 2026-09-25 against a busy
+       background: the palette already carried an 8px radius and its top-left pixel was still
+       exactly #202020, a perfect 90°. That, and nothing in the CSS, is why Spotlight was the
+       one surface that read as a hard rectangle.
+     · ⛔ **`html`/`body` background PROPAGATES TO THE VIEWPORT CANVAS, which is always square.**
+       The canvas is not an element, so no `border-radius` anywhere can clip it. This defeated
+       the first attempt at this change outright: `body.no-mica { background: var(--color-mica) }`
+       was still in the file, the arc measured **10px instead of 14**, and the flat fill was
+       painting the corners straight back in. See the html/body rule below — it is the reason
+       nothing may ever paint a surface colour there again.
+     So the frame is CSS's now, on both windows, and the two window tokens are live:
+     `--radius-panel` on the palette (which never asked for `windowEffects`) and
+     `--radius-window` on the shell root (2026-09-25: `windowEffects` dropped from Windows' `main`
+     — a Mac's `main` has the `sidebar` glass, in `tauri.macos.conf.json` — since
+     `DWMWA_WINDOW_CORNER_PREFERENCE` offers only ROUND ~8px or ROUNDSMALL ~4px and neither is
+     14). DWM still clips the main window at its own 8px — `decorations: false` keeps
+     WS_THICKFRAME — but with no backdrop behind it, everything outside our 14px arc is genuinely
+     transparent, so the 14px arc is the edge you see. Measured on the render: 14px, both themes.
+     (The palette is `resizable: false`, which drops WS_THICKFRAME, so DWM leaves it square and
+     `--radius-panel` is the only corner it has.) */
+  --radius-control: 6px; /* buttons, inputs, rows, small controls */
+  --radius-menu: 10px; /* context menus, dropdowns, the tab tops that meet the content edge */
+  --radius-card: 10px; /* cards, tiles, the hover card, toasts */
+  --radius-window: 14px; /* an app window's own frame: `rounded-window` on the shell root */
+  --radius-dialog: 16px; /* Settings, Customize, Confirm, Conflict */
+  --radius-panel: 20px; /* Spotlight, and any floating panel of its kind */
+
+  /* ⛔ One layer scale, and nothing sets a raw z-index outside it.
+     Every overlay in the app used to be `z-50` — the four dialogs, their four `{#await}`
+     skeletons, the context menu and the drag ghosts. At equal z-index the browser falls back to
+     DOM ORDER, so what painted on top was decided by where a thing happened to be written in
+     Shell.svelte. The visible bug: Settings is the fourth overlay there and the Customize
+     dialog the second, so clicking "Customize context menu…" *inside* Settings opened a dialog
+     behind the thing you clicked it from (`settings-sections.ts` → `customize.show()`).
+     `docs/plans/07-the-log-and-four-bugs.md` Phase D.
+     ⚠️ A skeleton and the dialog it resolves into are different elements — give them the SAME
+     token or the layering shifts as the lazy chunk loads, which reads as a flicker bug. */
+  --z-index-chrome: 10; /* pane and sidebar resize handles */
+  --z-index-infotip: 30; /* hover cards: below a toast, above the rows */
+  --z-index-toast: 40;
+  --z-index-dialog: 50; /* Settings, Conflict — a dialog opened from the window */
+  --z-index-dialog-nested: 60; /* a dialog a DIALOG opens: Customize, from Settings */
+  --z-index-dialog-urgent: 65; /* Confirm — can be raised over any of the above, and is a question */
+  --z-index-menu: 70; /* a context menu inside a dialog is a real flow, so above all dialogs */
+  --z-index-drag: 80; /* what is under the pointer wins outright */
+
+  --spacing-titlebar: 40px;
+  /* the one toolbar row under the tabs: back / forward / up, the path, search, the view switch.
+     Plan 12 G.1 — Explorer's separate command bar (50px) is gone; its commands moved to the
+     right-click menus, the palette, the keyboard and the + New button. */
+  --spacing-toolbar: 56px;
+  --spacing-sidebar: 248px;
+  --spacing-colhead: 22px;
+  /* Explorer's navigation-pane item, measured off a Win11 window at 100 %: 32px */
+  --spacing-navitem: 32px;
+  --spacing-row: 28px;
+  --spacing-statusbar: 32px;
+  --spacing-caption: 46px;
+}
+
+/* ⛔ The one shadow every floating surface wears, as a plain custom property rather than a
+   `@theme` token, and reached through the `@utility` below. Tailwind v4 PARSES a theme shadow
+   so it can support `shadow-x/50`, which inlines the value into the rule and makes a runtime
+   override in the dark block do nothing. `box-shadow: var(--shadow-flyout)` is re-read per
+   element, so the two themes really can carry different shadows.
+   Light is warm, wider and lighter — a 28 % black drop on warm paper is the second ink source
+   after the hairlines, and it is what made menus look stamped on rather than lifted off.
+   ⚠️ Dark keeps the exact value the eight call sites used to spell out by hand. */
+:root {
+  --shadow-flyout: 0 8px 20px rgb(72 60 42 / 0.16), 0 2px 6px rgb(72 60 42 / 0.1);
+}
+
+@utility shadow-flyout {
+  box-shadow: var(--shadow-flyout);
+}
+
+/* The dark tokens. ⚠️ Keyed on the attribute, not on `@media (prefers-color-scheme)`: Settings →
+   Appearance → Theme can force Light or Dark against the OS. `hooks/use-theme` always writes the
+   RESOLVED theme (`light` | `dark`) onto `<html>`, System included — it follows the media query
+   live — so this one block serves all three choices and no token is written twice. */
+:root[data-theme='dark'] {
+  --color-text: #ffffff;
+  --color-text-secondary: #d0d0d0;
+  --color-text-disabled: #757575;
+  --color-accent: #8ea2ff;
+  --color-accent-text: #000000;
+  --color-mica: #202020;
+  --color-layer: #191919;
+  /* ⚠️ Equal to --color-layer on purpose: dark mode was signed off as it is, so the light
+     fix must not move it. A dark flyout would arguably want the same lift light now gets
+     (#2c2c2c, the tab colour) — that is a separate change, on its own screenshot check. */
+  --color-flyout: #191919;
+  --color-field: #383838;
+  --color-field-stroke: rgb(255 255 255 / 0.07);
+  --color-tab-active: #2c2c2c;
+  --color-subtle-hover: rgb(255 255 255 / 0.06);
+  --color-subtle-pressed: rgb(255 255 255 / 0.04);
+  --color-subtle-selected: rgb(255 255 255 / 0.08);
+  /* 20 % white over #191919 composites to #4a4a4a: 1.90:1 against the layer, against the
+     0.08 token's 1.24:1 and Explorer's own 2.18:1. See the selection note above. */
+  --color-selection: rgb(255 255 255 / 0.2);
+  --color-selection-stroke: rgb(255 255 255 / 0.28);
+  --color-divider: #2b2b2b;
+  --color-caution: #e8a33d;
+  --shadow-flyout: 0 8px 16px rgb(0 0 0 / 0.28);
+  --color-ftype-document: #6ea8ff;
+  --color-ftype-pdf: #ff7b72;
+  --color-ftype-spreadsheet: #56c98a;
+  --color-ftype-presentation: #ff9a5c;
+  --color-ftype-image: #4fcfd6;
+  --color-ftype-video: #b693ff;
+  --color-ftype-audio: #ff7eb6;
+  --color-ftype-archive: #e2b04f;
+  --color-ftype-code: #9da2ff;
+}
+
+/* The rem base stays at the browser default 16px. Tailwind's whole scale is rem-based, so a
+   14px root silently renders every utility at 87.5 % — `h-8` came out 28px instead of 32,
+   `text-sm` 12.25px instead of 14, `text-xs` 10.5px instead of 12 — while the px tokens above
+   stayed exact. That is why the title bar and the toolbar lined up with Explorer and the
+   sidebar rows and the text did not. Windows' own body size is set on `body`, where it sizes
+   text without moving the scale. */
+html {
+  font-size: 16px;
+}
+
+/* ⛔ NOTHING MAY EVER PAINT A SURFACE COLOUR ON `html` OR `body`. The root element's background
+   — and `body`'s, whenever `html` is transparent — PROPAGATES to the viewport canvas, and the
+   canvas is not an element: it is always the full square window rect and no `border-radius` on
+   any box can clip it. So a single `background: var(--color-mica)` here silently cancels the
+   rounded window frame, at every corner, with no other symptom.
+   Measured 2026-09-25: with `body.no-mica { background: var(--color-mica) }` still present the
+   shell's 14px arc rendered as **10px** — the flat canvas fill painting the corners back in;
+   with the fill moved onto the shell root (`bg-mica` on the `rounded-window` box in
+   Shell.svelte) the same CSS measured the full **14px**. Both windows own their own opaque box
+   — the shell root and the Palette panel — so these two elements stay transparent forever, and
+   the frame stays ours. */
+html,
+body {
+  height: 100%;
+  margin: 0;
+  background: transparent;
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  line-height: 20px;
+  user-select: none;
+  -webkit-user-select: none;
+  cursor: default;
+}
+
+/* Windows' Body ramp, set here and not on `html` so it sizes text without moving the scale. */
+body {
+  font-size: 14px;
+}
+
+/* ⛔ Two rules used to live here — the `@supports not (backdrop-filter)` fallback and
+   `body.no-mica`, both `background: var(--color-mica)` on `body`. Both are GONE, and neither may
+   come back: no Windows/Linux window asks for a backdrop any more (a Mac's glass is tinted on the
+   shell root, below), so there is nothing to fall back from, and
+   a fill on `body` is exactly the canvas propagation that cancels the window radius (see the
+   html/body rule above). The chrome colour lives on the shell root instead, where a
+   `border-radius` can actually clip it. */
+
+::-webkit-scrollbar {
+  width: 12px;
+  height: 12px;
+}
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-text) 35%, transparent);
+  border: 4px solid transparent;
+  background-clip: padding-box;
+  border-radius: 8px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: color-mix(in srgb, var(--color-text) 55%, transparent);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+/* Where the two scrollbars meet the engine paints a white square unless told the surface. */
+::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+/* Dialog focus ring. The dialogs focus their PANEL (tabindex -1, no outline — intended), so the
+   controls inside must show where Tab landed. One rule covers Confirm, Conflict, Customize and
+   Settings and every button, switch, radio and field in them; the panel itself is excluded. */
+:is([role='dialog'], [role='alertdialog']) :focus-visible,
+/* WebKitGTK does not always set :focus-visible on a control focused by script and then Tab. The
+   keyboard-modality flag (`utils/keyboard-modality`, on <html>) says the last input was a key, so
+   plain :focus gets the same ring. Cleared on pointerdown, so a mouse click shows no ring. */
+:root[data-keyboard]
+  :is([role='dialog'], [role='alertdialog'])
+  :is(button, [role='button'], input, select, textarea, [role='switch'], [role='radio'], a[href]):focus:not([tabindex='-1']) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+/* The same ring everywhere else (plan 15 G.75): every focusable control outside a dialog — tiles,
+   sidebar rows, toolbar and title-bar buttons, the details pane's controls — shows the accent
+   ring on KEYBOARD focus, not the webview's default (a blue or black ring that ignores the
+   theme). Both themes, as --color-accent is themed. The data-keyboard line is the dialog rule's
+   WebKitGTK fallback, outside dialogs too. Mac style takes AppKit's softer ring, as dialogs do.
+   ⛔ In `@layer base`, on purpose: a control that turns its outline off (`outline-none` — the
+   address bar, search box and rename box live inside a field that shows focus already, the menu
+   rows paint a fill) is a Tailwind utility, and utilities beat this layer. The dialog rule above
+   stays unlayered and wins inside dialogs. */
+@layer base {
+  :focus-visible,
+  /* not on a Mac: WebKit there sets :focus-visible itself, and this more specific line would
+     paint over AppKit's ring below. The place tiles are a roving Tab stop (`tabindex -1` on all
+     but one), so they are named on their own. */
+  :root[data-keyboard]:not([data-os='macos'])
+    :is(
+      button,
+      [role='button'],
+      input,
+      select,
+      textarea,
+      [role='switch'],
+      [role='radio'],
+      [role='tab'],
+      a[href]
+    ):focus:not([tabindex='-1']),
+  :root[data-keyboard]:not([data-os='macos']) [data-place-tile]:focus {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 1px;
+  }
+  :root[data-os='macos'] :focus-visible {
+    outline: 3px solid var(--mac-focus-ring);
+    outline-offset: 0;
+  }
+}
+
+/* The checkbox (details pane Read-only / Hidden). The native one paints a white square on dark
+   under WebKitGTK; this one is ours: transparent fill, visible border, accent fill + check when
+   ticked. */
+.trove-check {
+  appearance: none;
+  -webkit-appearance: none;
+  flex: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  display: inline-grid;
+  place-content: center;
+  border-radius: 3px;
+  border: 1px solid var(--color-text-secondary);
+  background-color: transparent;
+}
+.trove-check::after {
+  content: '';
+  width: 8px;
+  height: 8px;
+  transform: scale(0);
+  background-color: var(--color-accent-text);
+  clip-path: polygon(14% 44%, 0 59%, 40% 100%, 100% 17%, 85% 3%, 40% 68%);
+}
+.trove-check:checked {
+  background-color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.trove-check:checked::after {
+  transform: scale(1);
+}
+.trove-check:disabled {
+  border-color: var(--color-text-disabled);
+  opacity: 0.6;
+}
+.trove-check:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* ⭐ MAC ONLY: FROSTED GLASS, the whole window. On macOS every explorer window is transparent
+   with the system's `sidebar` material behind the page (`tauri.macos.conf.json`,
+   `commands/windows.rs` — it goes flat by itself when the window loses focus). Every surface of
+   the shell sits on that glass under a SEE-THROUGH tint of its own token:
+     --glass-chrome   title bar + tabs, toolbar, sidebar, status bar (the window root's fill)
+     --glass-content  file list / place view, Details-Preview pane, terminal, transfers — painted
+                      ON TOP of the chrome tint, so text there sits on a stronger tint
+     --glass-field    address bar, search box, rename box: a field must still read as a field
+     --glass-tab      the active tab, so it still stands out from the strip
+   Dialogs, menus, toasts, tooltips and the Find-anything dropdown keep their solid tokens: they
+   are siblings of the root (dialogs) or use --color-flyout / their own bg-mica, none of which is
+   touched here. The token swaps below are scoped to `.rounded-window`, and dialogs sit outside it.
+   `data-os` is set only by app.html's first-frame script, only on a Mac, so on Windows and Linux
+   (and in a plain browser) none of this matches and nothing changes there.
+   ⚠️ Each tint is the token at a fixed alpha, not a new colour, so it follows Light/Dark with
+   the app theme even where the material underneath follows the OS appearance instead. The
+   --glass-* values are computed on :root (where the theme tokens live), which is what lets
+   `.rounded-window` re-point --color-field at them without a cycle.
+   ⛔ The overrides of the shell's own `bg-mica` / `bg-layer` are UNLAYERED on purpose — they
+   must beat those utilities. The content fills are in `@layer base` so any utility a component
+   sets on its own root (now or later) still wins over them. The structure they key on is
+   Shell.svelte's: root (`rounded-window`) > TitleBar, NavBar, the `bg-layer` body > [the row:
+   Sidebar FIRST, then the list, then PaneHost], TerminalHost, TransferPanel, StatusBar (`footer`).
+   ⛔ The sidebar is skipped by POSITION (`:first-child`), not by tag: PaneHost's root is an
+   `aside` too. Shell's test (`shell-glass.test.ts`) fails if that structure moves. */
+:root[data-os='macos'] {
+  --glass-chrome: color-mix(in srgb, var(--color-mica) 30%, transparent);
+  --glass-content: color-mix(in srgb, var(--color-layer) 40%, transparent);
+  --glass-field: color-mix(in srgb, var(--color-field) 72%, transparent);
+  --glass-tab: color-mix(in srgb, var(--color-tab-active) 78%, transparent);
+}
+/* dark's divider is a SOLID grey made for a solid layer; on glass it vanishes, so a light hairline */
+:root[data-os='macos'][data-theme='dark'] .rounded-window {
+  --color-divider: rgb(255 255 255 / 0.1);
+}
+:root[data-os='macos'] .rounded-window {
+  --color-field: var(--glass-field);
+  --color-tab-active: var(--glass-tab);
+}
+:root[data-os='macos'] .rounded-window.bg-mica {
+  background-color: var(--glass-chrome);
+}
+:root[data-os='macos'] .rounded-window > .bg-layer {
+  background-color: transparent;
+}
+/* the terminal paints its own theme colour; keep the colour, let the glass through */
+:root[data-os='macos'] .rounded-window .wterm {
+  background: color-mix(in srgb, var(--term-bg) 70%, transparent);
+}
+@layer base {
+  :root[data-os='macos'] .rounded-window > .bg-layer > :not(:first-child):not(footer),
+  :root[data-os='macos'] .rounded-window > .bg-layer > :first-child > :not(:first-child) {
+    background-color: var(--glass-content);
+  }
+}
+
+/* ⭐ REDUCED MOTION. Windows' "Animation effects: off" reaches the webview as this media query.
+   Everything keeps its END state and loses the journey: durations collapse to ~0 (not `none`,
+   so anything listening for an end event would still fire — nothing in the app does).
+   ⚠️ The endless loops are the exception: a 0.01ms infinite loop would freeze a spinner at a
+   random angle and look broken, so they get `animation: none` and a still look instead — the
+   spinner glyph sits upright at reduced opacity (reads as "working"), the pulse dot as it is. */
+@media (prefers-reduced-motion: reduce) {
+  :where(:root:not([data-reduced-motion])),
+  :where(:root:not([data-reduced-motion])) *,
+  :where(:root:not([data-reduced-motion])) *::before,
+  :where(:root:not([data-reduced-motion])) *::after {
+    animation-duration: 0.01ms !important;
+    animation-delay: 0s !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0s !important;
+    scroll-behavior: auto !important;
+  }
+  :where(:root:not([data-reduced-motion])) .animate-spin,
+  :where(:root:not([data-reduced-motion])) .animate-pulse {
+    animation: none !important;
+  }
+  :where(:root:not([data-reduced-motion])) .animate-spin {
+    opacity: 0.6;
+  }
+}
+/* ⚠️ LINUX, LIVE. WebKitGTK re-applies the media query above only after a resize, so on Linux
+   the GTK setting is watched in Rust (`core/reduced_motion.rs`) and written as
+   `<html data-reduced-motion>`. Once it is there it decides alone — the `:not(...)` above makes
+   the stale media query step aside — and Windows and the Mac, where it is never written, keep
+   the media query. `:where` keeps both at the specificity the plain rules had. */
+:where(:root[data-reduced-motion='reduce']),
+:where(:root[data-reduced-motion='reduce']) *,
+:where(:root[data-reduced-motion='reduce']) *::before,
+:where(:root[data-reduced-motion='reduce']) *::after {
+  animation-duration: 0.01ms !important;
+  animation-delay: 0s !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  transition-delay: 0s !important;
+  scroll-behavior: auto !important;
+}
+:where(:root[data-reduced-motion='reduce']) .animate-spin,
+:where(:root[data-reduced-motion='reduce']) .animate-pulse {
+  animation: none !important;
+}
+:where(:root[data-reduced-motion='reduce']) .animate-spin {
+  opacity: 0.6;
+}
+
+/* ⭐ HIGH CONTRAST (Windows Contrast themes arrive as forced-colors: active). The browser already
+   swaps most colours; this maps Trove's own tokens onto system colours so token-driven fills and
+   alpha tints follow the user's theme too. DECIDED: no see-through window under high contrast —
+   body and every glass surface become solid Canvas, on a Mac too. Selection is an outline (a
+   fill alone can vanish) and focus rings stay visible. Unlayered, so it beats the glass fills
+   that live in `@layer base` above. */
+@media (forced-colors: active) {
+  :root,
+  :root[data-theme='dark'],
+  :root[data-os='macos'],
+  :root[data-os='macos'][data-theme='dark'] {
+    --color-text: CanvasText;
+    --color-text-secondary: CanvasText;
+    --color-text-disabled: GrayText;
+    --color-accent: Highlight;
+    --color-accent-text: HighlightText;
+    --color-mica: Canvas;
+    --color-layer: Canvas;
+    --color-flyout: Canvas;
+    --color-field: Field;
+    --color-field-stroke: CanvasText;
+    --color-tab-active: Canvas;
+    --color-subtle-hover: ButtonFace;
+    --color-subtle-pressed: ButtonFace;
+    --color-subtle-selected: Canvas;
+    --color-selection: Canvas;
+    --color-selection-stroke: Highlight;
+    --color-divider: CanvasText;
+    --color-close-hover: Highlight;
+    --color-critical: LinkText;
+    --color-caution: LinkText;
+    --glass-chrome: Canvas;
+    --glass-content: Canvas;
+    --glass-field: Field;
+    --glass-tab: Canvas;
+    --shadow-flyout: none;
+  }
+  html,
+  body {
+    background: Canvas;
+    color: CanvasText;
+  }
+  :root[data-os='macos'] .rounded-window,
+  :root[data-os='macos'] .rounded-window.bg-mica,
+  :root[data-os='macos'] .rounded-window > .bg-layer,
+  :root[data-os='macos'] .rounded-window .wterm {
+    background: Canvas;
+  }
+  :root[data-os='macos'] .rounded-window > .bg-layer > :not(:first-child):not(footer),
+  :root[data-os='macos'] .rounded-window > .bg-layer > :first-child > :not(:first-child) {
+    background: Canvas;
+  }
+  [aria-selected='true'] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  [aria-current='page'],
+  [aria-checked='true'] {
+    outline: 2px solid Highlight;
+    outline-offset: -2px;
+  }
+  .trove-check {
+    forced-color-adjust: none;
+    border-color: ButtonText;
+  }
+  .trove-check:checked {
+    background-color: Highlight;
+    border-color: Highlight;
+  }
+  .trove-check:checked::after {
+    background-color: HighlightText;
+  }
+  :focus-visible,
+  :is([role='dialog'], [role='alertdialog']) :focus-visible {
+    outline: 2px solid Highlight;
+    outline-offset: 2px;
+  }
+  button,
+  [role='button'] {
+    border: 1px solid ButtonText;
+  }
+  a {
+    color: LinkText;
+  }
+  .toast,
+  [role='dialog'],
+  [role='alertdialog'],
+  [role='menu'] {
+    border: 1px solid CanvasText;
+  }
+}

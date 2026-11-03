@@ -1,0 +1,88 @@
+#!/bin/sh
+# Trove pre-push: the gate for pushes made by hand. Installed by scripts/install-git-hook.ts;
+# the global ~/.git-hooks/pre-push chains to it. Tiers:
+#   every push:      bun run check, bun run lint, and cargo fmt --check when src-tauri/ changed
+#   a push to main:  + bun run test, bun run build, and cargo clippy + cargo test when src-tauri/ changed
+# Red blocks the push. A gate that could not run (no bun, no install) says so and lets it through.
+# SKIP_VERIFY=1 git push ... skips it and says so.
+
+ZERO=0000000000000000000000000000000000000000
+REPO=$(basename "$(git rev-parse --show-toplevel 2>/dev/null)")
+
+if [ -n "${SKIP_VERIFY:-}" ]; then
+	echo "⚠️  trove pre-push: SKIP_VERIFY set - nothing was verified on $REPO" >&2
+	exit 0
+fi
+
+# git runs hooks with a bare PATH; bun and cargo live in the home folder.
+# ⛔ node too: with no node on PATH, `bun run test` runs vitest on bun's own runtime and 7 tests
+# go red that pass on node (measured 2026-10-23). nvm's newest install, when nvm has one.
+NVM_NODE=$(ls -d "${NVM_DIR:-$HOME/.nvm}"/versions/node/v*/bin 2>/dev/null | sort -V | tail -1)
+PATH="$HOME/.bun/bin:$HOME/.cargo/bin:${NVM_NODE:+$NVM_NODE:}$PATH"
+export PATH
+
+MAIN=0
+SENDING=0
+CHANGED=""
+while read -r LOCAL_REF LOCAL_SHA REMOTE_REF REMOTE_SHA; do
+	[ -z "$LOCAL_REF" ] && continue
+	case "$LOCAL_SHA" in "$ZERO") continue ;; esac # a branch delete sends nothing
+	SENDING=1
+	[ "$REMOTE_REF" = "refs/heads/main" ] && MAIN=1
+	if [ "$REMOTE_SHA" = "$ZERO" ]; then
+		BASE=$(git merge-base origin/main "$LOCAL_SHA" 2>/dev/null)
+	else
+		BASE=$REMOTE_SHA
+	fi
+	# an unknown base (not fetched) counts as "everything changed"
+	if [ -n "$BASE" ] && git cat-file -e "$BASE^{commit}" 2>/dev/null; then
+		CHANGED="$CHANGED$(git diff --name-only "$BASE" "$LOCAL_SHA")
+"
+	else
+		CHANGED="${CHANGED}src-tauri/unknown-base
+"
+	fi
+done
+
+[ "$SENDING" = "0" ] && exit 0
+
+if ! command -v bun >/dev/null 2>&1 || ! command -v node >/dev/null 2>&1 || [ ! -d node_modules ]; then
+	echo "⚠️  trove pre-push: no bun, node or node_modules here - the gate DID NOT RUN, nothing was verified" >&2
+	exit 0
+fi
+
+RUST=0
+printf '%s' "$CHANGED" | grep -q '^src-tauri/' && RUST=1
+if [ "$RUST" = "1" ] && ! command -v cargo >/dev/null 2>&1; then
+	echo "⚠️  trove pre-push: src-tauri/ changed but there is no cargo - Rust NOT checked" >&2
+	RUST=0
+fi
+
+step() {
+	NAME=$1
+	shift
+	START=$(date +%s)
+	if "$@" >/tmp/trove-pre-push.$$.log 2>&1; then
+		echo "   trove pre-push: $NAME ok ($(($(date +%s) - START))s)" >&2
+	else
+		tail -30 /tmp/trove-pre-push.$$.log >&2
+		rm -f /tmp/trove-pre-push.$$.log
+		echo "⛔ trove pre-push: $NAME is RED - push refused. Fix it, or SKIP_VERIFY=1 git push ..." >&2
+		exit 1
+	fi
+	rm -f /tmp/trove-pre-push.$$.log
+}
+
+echo "   trove pre-push: $([ "$MAIN" = "1" ] && echo "main push, full tier" || echo "branch push, quick tier")$([ "$RUST" = "1" ] && echo ", Rust changed")" >&2
+step "typecheck" bun run check
+step "lint" bun run lint
+[ "$RUST" = "1" ] && step "cargo fmt" sh -c 'cd src-tauri && cargo fmt --check'
+if [ "$MAIN" = "1" ]; then
+	step "unit tests" bun run test
+	step "build" bun run build
+	if [ "$RUST" = "1" ]; then
+		step "cargo clippy" sh -c 'cd src-tauri && cargo clippy --all-targets -- -D warnings'
+		step "cargo test" sh -c 'cd src-tauri && cargo test'
+	fi
+fi
+exit 0

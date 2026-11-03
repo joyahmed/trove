@@ -1,0 +1,38 @@
+/* Mac-only look: "Increase contrast" (System Settings -> Accessibility -> Display). WebKit hands
+   it over as `prefers-contrast: more`. The Windows twin is the `forced-colors` block in app.css
+   (plan 15 G.72): there the OS swaps the colours; on a Mac nothing does, so this block thickens
+   what the theme draws thin, using the same tokens.
+
+   What it protects, in the same order as the forced-colors block: the text tokens (muted text
+   goes to full text colour), the borders and dividers (hairlines go solid), the focus ring (the
+   system accent at full strength, not 50 % alpha) and the selection (a stroke, not only a fill).
+   Glass stays: the person asked for contrast, not for a solid window.
+   ⚠️ Keyed on the theme attribute (light and dark) so it beats the dark token blocks, which sit
+   at the same specificity in files imported before this one. Imported LAST in app.css. */
+@media (prefers-contrast: more) {
+  :root[data-os='macos'][data-theme='light'],
+  :root[data-os='macos'][data-theme='dark'],
+  :root[data-os='macos'][data-theme='dark'] .rounded-window {
+    --color-text-secondary: var(--color-text);
+    --color-text-disabled: var(--color-text-secondary);
+    --color-field-stroke: var(--color-text-secondary);
+    --color-divider: var(--color-text-secondary);
+    --color-selection-stroke: var(--color-text);
+    --mac-hairline: var(--color-text-secondary);
+    --mac-label: var(--color-text);
+    --mac-focus-ring: -apple-system-control-accent;
+  }
+  :root[data-os='macos'] :focus-visible,
+  :root[data-os='macos'] :is([role='dialog'], [role='alertdialog']) :focus-visible {
+    outline: 3px solid var(--mac-focus-ring);
+    outline-offset: 1px;
+  }
+  :root[data-os='macos'] [aria-selected='true'],
+  :root[data-os='macos'] [aria-current='page'] {
+    outline: 1px solid var(--color-selection-stroke);
+    outline-offset: -1px;
+  }
+  :root[data-os='macos'] :is([role='dialog'], [role='alertdialog'], [role='menu'], .toast) {
+    border: 1px solid var(--color-divider);
+  }
+}

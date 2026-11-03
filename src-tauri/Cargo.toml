@@ -1,0 +1,201 @@
+[package]
+name = "trove"
+version = "0.1.0"
+description = "Trove — a fast file explorer for Windows, macOS and Linux, built with Tauri 2 + Svelte 5"
+authors = ["Joy Ahmed <joy@zettabyteincorp.com>"]
+homepage = "https://github.com/joyahmed/trove"
+repository = "https://github.com/joyahmed/trove"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "trove_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# `macos-private-api`: the only way a macOS window can be transparent, which the frosted-glass
+# chrome needs (`tauri.macos.conf.json` windowEffects). ⛔ It must sit in THIS table, not a
+# macOS-only one: tauri-build checks this entry's features against `app.macOSPrivateApi` in the
+# merged config (so that flag is in the base `tauri.conf.json`) and refuses the build on a
+# mismatch, and it never looks at a target table while this one has `tauri`. Off macOS it
+# compiles to nothing (every gate it opens is `wkwebview` or `target_os = "macos"`), so Windows
+# and Linux build the same code as before. ⚠️ Private Apple API: no Mac App Store build.
+tauri = { version = "2", features = ["tray-icon", "image-png", "macos-private-api"] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+trash = "5"
+tauri-plugin-single-instance = "2.4.5"
+png = "0.17"
+notify = "8"
+walkdir = "2"
+# The file-name index's search (plan 21C): one `memmem` scan over every name. Already in the
+# lock through other crates; named here because `core/index/table.rs` calls it.
+memchr = "2"
+portable-pty = "0.9"
+tauri-plugin-global-shortcut = "2"
+zip = { version = "2", default-features = false, features = ["deflate", "deflate64"] }
+# tar read/write for .tar.gz / .tar.xz / .tar.zst (plan 16 phase 2). Pure Rust; we never call
+# `unpack_in` - every entry goes through core/archive/safe_path like a zip entry.
+tar = "0.4"
+# .gz around a tar. Already in the tree through zip's `deflate`, so this adds no second copy.
+flate2 = "1"
+# .xz around a tar, pure Rust; the same LZMA the 7z phase uses, so one LZMA in the build.
+lzma-rust2 = { version = "0.21", default-features = false, features = ["std", "encoder", "xz"] }
+# .zst around a tar. ⚠️ Builds zstd's C source with `cc` (MSVC, clang or gcc must be there).
+zstd = { version = "0.14", default-features = false }
+# .7z read/write (plan 16 phase 3). Pure Rust, Apache-2.0. Default features off: no AES (an
+# encrypted entry is refused as "not supported yet"). bzip2 + ppmd + deflate kept so 7-Zip-made
+# archives with those methods extract; zstd/brotli/lz4 (7-Zip forks only) left out.
+sevenz-rust2 = { version = "0.23", default-features = false, features = ["compress", "util", "bzip2", "ppmd", "deflate"] }
+tauri-plugin-log = "2.9.2"
+log = "0.4.34"
+
+[target.'cfg(unix)'.dependencies]
+# statvfs for a drive's size off Windows (std has no such call). Already in the tree through
+# tauri on every Unix target, so it adds no crate to the build and nothing to the binary on
+# Windows, where it is not a dependency at all.
+libc = "0.2"
+
+[target.'cfg(not(windows))'.dependencies]
+# Image thumbnails off Windows (plan 14.2), where there is no shell to ask. `image` itself is
+# already in every build through tauri's `image-png`; this adds only the codecs. ⛔ Target-only
+# on purpose: in the plain [dependencies] table these features would unify into tauri's copy and
+# ship in the Windows exe, which has the shell and never decodes.
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+# JPEG decoded at 1/2, 1/4 or 1/8 size straight from the DCT (`Decoder::scale`), which `image`'s
+# zune-jpeg cannot do: a 24 MP photo becomes 750 x 500 pixels, never 6000 x 4000 (image_thumbs.rs).
+# No default features: that drops rayon. Off Windows only, like `image`.
+jpeg-decoder = { version = "0.3", default-features = false }
+# Plain text on the system clipboard off Windows (core/clipboard.rs). No default features: that
+# drops arboard's own image support (and its `image` copy). Target-only, so Windows never builds it.
+arboard = { version = "3", default-features = false }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# Drag OUT of the window on Linux (core/drag_out.rs): `gtk_drag_begin_with_coordinates` on the
+# window tauri already builds with this very gtk (0.18 is what tauri-runtime-wry pins), so no
+# new crate enters the build; `gdk` and `glib` come re-exported through it.
+gtk = "0.18"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# QuickLook thumbnails for the kinds the decoders above cannot read — HEIC, TIFF, video
+# (core/quicklook.rs). All already in the Mac build through tauri/tao at these versions except
+# objc2-quick-look-thumbnailing itself, and macOS-only, so Windows and Linux build nothing new.
+objc2 = "0.6"
+block2 = "0.6"
+# NSArray: the app list "Open With" reads from NSWorkspace (core/open_with_mac.rs).
+# NSFileManager: the move to the Trash when Finder's Apple Events are refused, saying where the
+# item landed so ⌘Z can put it back (core/trash_mac.rs).
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString", "NSURL", "NSError", "NSFileManager"] }
+objc2-core-foundation = { version = "0.3", default-features = false, features = ["std", "CFCGTypes"] }
+objc2-core-graphics = { version = "0.3", default-features = false, features = ["std", "objc2", "CGImage", "CGContext", "CGBitmapContext", "CGColorSpace"] }
+objc2-quick-look-thumbnailing = { version = "0.3", default-features = false, features = ["std", "bitflags", "block2", "objc2-core-foundation", "objc2-core-graphics", "QLThumbnailGenerationRequest", "QLThumbnailGenerator", "QLThumbnailRepresentation"] }
+
+[dev-dependencies]
+# The same codecs for tests on every OS, so `cargo test` on Windows exercises the decoder too
+# (`core/image_thumbs.rs`). Dev-dependencies never reach a release build.
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
+jpeg-decoder = { version = "0.3", default-features = false }
+
+[target.'cfg(windows)'.dependencies]
+# COM interfaces (IShellItemImageFactory for big icons and thumbnails); windows-sys stays for the rest.
+# ApplicationModel + Foundation: the Store build's StartupTask (core/startup.rs, plan 22.2.4).
+windows = { version = "0.61", features = [
+  "ApplicationModel",
+  "ApplicationModel_Activation",
+  "Foundation",
+  "Win32_Foundation",
+  "Win32_Graphics_Gdi",
+  "Win32_System_Com",
+  "Win32_System_Com_StructuredStorage",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_Ole",
+  "Win32_System_SystemServices",
+  "Win32_UI_Shell",
+  "Win32_UI_Shell_Common",
+] }
+# the `implement` macro (drag_out.rs) resolves `windows_core` at the crate root
+windows-core = "0.61"
+windows-sys = { version = "0.60", features = [
+  "Win32_Foundation",
+  "Win32_System_Diagnostics_Debug",
+  # DwmSetWindowAttribute — core/frame.rs tells DWM not to stroke its own 1px window border
+  "Win32_Graphics_Dwm",
+  "Win32_Graphics_Gdi",
+  "Win32_Storage_FileSystem",
+  "Win32_System_Com",
+  "Win32_System_DataExchange",
+  "Win32_System_Memory",
+  "Win32_System_Ole",
+  "Win32_Security",
+  "Win32_System_Registry",
+  # who holds a file open, and whose session / parent it is (core/lockers.rs, plan 21B)
+  "Win32_System_Diagnostics_ToolHelp",
+  # NTFS change journal tail: DeviceIoControl + FSCTL_*_USN_JOURNAL (core/index/usn.rs, plan 21C.3b)
+  "Win32_System_IO",
+  "Win32_System_Ioctl",
+  "Win32_System_RemoteDesktop",
+  "Win32_System_RestartManager",
+  "Win32_System_Threading",
+  # GetKeyState: which modifiers rode along with a swallowed Alt+Space (core/key_menu.rs)
+  "Win32_UI_Input_KeyboardAndMouse",
+  "Win32_UI_Shell",
+  "Win32_UI_WindowsAndMessaging",
+] }
+
+
+# The image decoders, optimized even in a dev build (`tauri dev`, `cargo test`). Unoptimized,
+# zune-jpeg and the resize run ~28x slower: a 24 MP JPEG took 7816 ms to thumbnail at opt-level 0
+# against 280 ms in release, and the Mac gallery logged `slow shell image` at 600–1650 ms per
+# photo. Only these crates: our own code stays quick to rebuild and debuggable.
+[profile.dev.package.image]
+opt-level = 3
+[profile.dev.package.zune-jpeg]
+opt-level = 3
+[profile.dev.package.zune-core]
+opt-level = 3
+[profile.dev.package.png]
+opt-level = 3
+[profile.dev.package.fdeflate]
+opt-level = 3
+[profile.dev.package.miniz_oxide]
+opt-level = 3
+[profile.dev.package.simd-adler32]
+opt-level = 3
+[profile.dev.package.crc32fast]
+opt-level = 3
+[profile.dev.package.gif]
+opt-level = 3
+[profile.dev.package.weezl]
+opt-level = 3
+[profile.dev.package.image-webp]
+opt-level = 3
+[profile.dev.package.moxcms]
+opt-level = 3
+[profile.dev.package.pxfm]
+opt-level = 3
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
+
+# Tauri's mock runtime, for tests that need an `AppHandle` (`window_layout::arrange`). Linux only:
+# on Windows it makes the lib test binary import comctl32 v6 entry points without the manifest
+# that provides them, so the test exe dies at load with STATUS_ENTRYPOINT_NOT_FOUND (0xc0000139)
+# and no test runs. The one test that uses it is about Wayland anyway. Cargo unifies features
+# per build: only `cargo test` / `--all-targets` builds get `test`; a release build never sees a
+# dev-dependency.
+[target.'cfg(target_os = "linux")'.dev-dependencies]
+tauri = { version = "2", features = ["test"] }

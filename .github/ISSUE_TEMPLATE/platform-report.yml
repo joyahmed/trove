@@ -1,0 +1,69 @@
+name: Platform report
+description: Tell us what works and what is broken on your system (Mac, Ubuntu or other Linux).
+title: 'Platform report: '
+labels: ['platform-report']
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying Trove. The full list of things to check is in
+        `docs/plans/15-feature-check-on-every-os.md`. Report one item or many.
+  - type: input
+    id: os
+    attributes:
+      label: Operating system and version
+      description: For example macOS 15.1, Ubuntu 24.04, Fedora 41, Windows 11 24H2.
+    validations:
+      required: true
+  - type: dropdown
+    id: cpu
+    attributes:
+      label: CPU
+      options:
+        - x64 (Intel or AMD)
+        - ARM (Apple Silicon, Raspberry Pi, etc.)
+        - Not sure
+    validations:
+      required: true
+  - type: input
+    id: desktop
+    attributes:
+      label: Desktop (Linux only)
+      description: For example GNOME, KDE Plasma, XFCE, Cinnamon. Say X11 or Wayland if you know.
+  - type: input
+    id: version
+    attributes:
+      label: Trove version or commit
+      description: The version in Settings > About, or the git commit you built.
+    validations:
+      required: true
+  - type: input
+    id: items
+    attributes:
+      label: Checklist item IDs
+      description: The IDs from the checklist, like B.3.5. Separate with commas.
+      placeholder: B.3.5, D.4.2
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: Result
+      options:
+        - Works
+        - Broken
+        - Partly works
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: What you did and what happened
+      description: Steps you took, what you expected, and what you saw instead.
+    validations:
+      required: true
+  - type: textarea
+    id: screenshot
+    attributes:
+      label: Screenshot
+      description: Drag an image here if it helps.
