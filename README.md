@@ -60,7 +60,7 @@ I use it every day. If something feels off, tell me.
 - 🗂 **Tabs**: real tabs that come back after a restart. Save a group of tabs as a named set.
 - ↩️ **Undo**: every disk action, even after you restart Trove. An undo history for older actions.
 - 📦 **Archives**: open zip, 7z, tar and RAR like folders. Extract all, with progress and undo.
-- 💻 **Terminal**: a terminal pane under the file list (<kbd>Ctrl</kbd>+<kbd>&#96;</kbd>). Type `cd` and the list moves with you.
+- 💻 **Terminal**: a terminal pane under the file list (<kbd>Ctrl</kbd>+<kbd>&#96;</kbd>). With a shell that reports its folder (fish, or one line in your shell setup), `cd` moves the list too.
 - ⌨️ **Your keys**: change any shortcut. Trove tells you when a key is already taken.
 - 🔒 **Private**: no telemetry, no background network calls, no auto-updates.
 
@@ -99,7 +99,7 @@ I use it every day. If something feels off, tell me.
 ### Terminal
 
 - A terminal pane under the file list. <kbd>Ctrl</kbd> + <kbd>&#96;</kbd> opens it.
-- Type `cd` in it and the file list moves with you.
+- With a shell that reports its folder, typing `cd` moves the file list with you. fish does this out of the box. For zsh, bash or PowerShell, add the one line shown next to **Follow folder** in Trove. The default zsh on a Mac does not report it.
 - Paste the paths of the files you picked straight into the terminal.
 
 ### Windows
