@@ -141,7 +141,7 @@ Trove isn't signed by a known publisher yet, which is why your system warns you.
 
 ## Watch it
 
-A 60-second look at Trove, and more of what I build: [youtube.com/@joysbuilds](https://www.youtube.com/@joysbuilds).
+**[▶ Watch the 40-second Short](https://youtube.com/shorts/MFJlusVQLhg)**. More of what I build: [youtube.com/@joysbuilds](https://www.youtube.com/@joysbuilds).
 
 ## Privacy
 
