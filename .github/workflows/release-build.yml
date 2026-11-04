@@ -3,12 +3,17 @@
 # ⛔ Runs ONLY by hand (Actions tab -> "Run workflow") or on a `v*` tag. Never on push or pull
 # request: the repo is private, so every minute is billed, and a macOS minute costs 10x.
 # ⛔ Outputs are workflow ARTIFACTS only. No GitHub Release, nothing published anywhere, no
-# secrets used. Making a draft release in `trove-releases` is a later step (plan 22), on purpose
+# secrets used unless the `updater` input is ticked (plan 22.5: it needs the signing key). Making a draft release in `trove-releases` is a later step (plan 22), on purpose
 # not here.
 name: Release build
 
 on:
   workflow_dispatch:
+    inputs:
+      updater:
+        description: 'Self-updating build (plan 22.5). Needs the TAURI_SIGNING_PRIVATE_KEY secret (JOY Q9).'
+        type: boolean
+        default: false
   push:
     tags:
       - 'v*'
@@ -22,10 +27,13 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  # Updater signing (JOY Q9, not decided yet). When it is, add the key as a repo secret and
-  # uncomment these two lines; `tauri build` then signs the updater bundles.
-  # TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-  # TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+  # The `updater` input (off by default, and always off on a tag): the cargo feature plus the
+  # updater config (pubkey, endpoint, createUpdaterArtifacts). Empty = today's build, unchanged.
+  UPDATER_ARGS: ${{ inputs.updater && '--features updater --config src-tauri/tauri.updater.conf.json' || '' }}
+  # Updater signing (JOY Q9): read only when the `updater` input is ticked; `tauri build` then
+  # signs the updater bundles, and refuses to build them without the key.
+  TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.updater && secrets.TAURI_SIGNING_PRIVATE_KEY || '' }}
+  TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.updater && secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD || '' }}
 
 jobs:
   # The same gate the pre-commit hook runs: check, lint, vitest, vite build, fmt, clippy,
@@ -88,7 +96,9 @@ jobs:
         run: echo "CARGO_ENCODED_RUSTFLAGS=$(bun scripts/remap-flags.ts --encoded)" >> "$GITHUB_ENV"
 
       # tauri.conf.json: bundle targets nsis, currentUser install, nsis-hooks.nsh.
-      - run: bun run build:installer
+      - name: Build the installer
+        shell: bash
+        run: bun run build:installer $UPDATER_ARGS
 
       - name: No build-machine path in the binary (plan 22.0.4)
         shell: bash
@@ -150,7 +160,9 @@ jobs:
         run: echo "CARGO_ENCODED_RUSTFLAGS=$(bun scripts/remap-flags.ts --encoded)" >> "$GITHUB_ENV"
 
       # On Linux tauri merges src-tauri/tauri.linux.conf.json: targets deb + appimage.
-      - run: bun run tauri build
+      - name: Build deb + AppImage
+        shell: bash
+        run: bun run tauri build $UPDATER_ARGS
 
       - name: No build-machine path in the binary (plan 22.0.4)
         shell: bash
@@ -210,7 +222,7 @@ jobs:
       - name: Build universal .dmg
         run: >-
           bun run tauri build --target universal-apple-darwin
-          --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}'
+          --config '{"bundle":{"macOS":{"signingIdentity":"-"}}}' $UPDATER_ARGS
 
       - name: No build-machine path in the binary (plan 22.0.4)
         shell: bash

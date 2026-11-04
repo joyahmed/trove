@@ -4,11 +4,13 @@
 <script lang="ts">
   import { rowId } from '$lib/utils/row-id';
   import type { FileEntry } from '$lib/types/fs';
-  import { dropPathOf, shownName } from '$lib/utils/app-bundle';
+  import { dropPathOf } from '$lib/utils/app-bundle';
+  import { displayName } from '$lib/data/display-name';
   import { tileIconUrl, tilePlaceholderUrl } from '$lib/utils/tile-icon'; // pure URL formatters, not IPC
   import { useSettled } from '$lib/hooks/use-settled.svelte';
   import { tileGeometry } from '$lib/data/view-layouts';
   import { tabs } from '$lib/state/tabs.svelte';
+  import { listing } from '$lib/state/listing.svelte';
   import { useInfotip } from '$lib/hooks/use-infotip.svelte';
   import FolderIcon from '$lib/components/ui/FolderIcon.svelte';
   import { DRAWN_FILE_ICONS, fileIconKind } from '$lib/utils/file-icon';
@@ -19,8 +21,10 @@
   import { fmtSize } from '$lib/utils/format';
   import { shortKindOf } from '$lib/utils/short-kind';
   import { tileMetaLine } from '$lib/utils/tile-meta';
+  import { useHitFolder } from '$lib/hooks/use-hit-folder.svelte';
   import Infotip from './Infotip.svelte';
   import RenameBox from './RenameBox.svelte';
+  import ItemCheck from './ItemCheck.svelte';
 
   interface Props {
     entry: FileEntry;
@@ -54,7 +58,7 @@
     oncontextmenu,
     onopen,
   }: Props = $props();
-  const tile = $derived(tileGeometry(tabs.active.iconSize));
+  const tile = $derived(tileGeometry(tabs.active.iconSize, listing.isSearch));
   // Every icon size asks the shell per file — thumbnails for what has them (images, video,
   // PDF), the big icon for everything else — because that is what Explorer does from Medium
   // up. See `tile-icon.ts` for the measurement, and `use-virtual-rows` for why per-file is
@@ -71,6 +75,7 @@
   let failedFor = $state('');
   const src = $derived(settled.ready && failedFor !== icon ? icon : tilePlaceholderUrl(entry));
   const tip = useInfotip(() => entry);
+  const where = useHitFolder(() => entry);
   // Off Windows there is no shell icon at any size (plan 14): every folder draws the SVG at the
   // tile's size and every file its category glyph, except a picture Rust decodes (plan 14.2),
   // which shows its own thumbnail. Windows is unchanged: the SVG at 48 only.
@@ -91,7 +96,7 @@
      right and not four: hover, selected, cursor (selected or not). -->
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
 <div
-  class="rounded-card flex flex-col items-stretch gap-1.5 overflow-hidden p-2 text-center {selected
+  class="rounded-card relative flex flex-col items-stretch gap-1.5 overflow-hidden p-2 text-center {selected
     ? 'bg-selection'
     : 'hover:bg-subtle-hover'} {focused
     ? 'inset-ring-selection-stroke inset-ring-1'
@@ -119,6 +124,7 @@
 >
   <!-- no `title`: the infotip carries the clamped name, and a native tooltip would race it -->
   <Infotip {entry} {tip} />
+  <ItemCheck {selected} corner />
   <span
     class="bg-subtle-pressed grid shrink-0 place-items-center rounded-lg"
     data-mac="tile-icon"
@@ -161,7 +167,14 @@
   {#if renaming}
     <RenameBox centered />
   {:else}
-    <span class="w-full truncate text-xs leading-4" data-mac="tile-name">{shownName(entry)}</span>
+    <span class="w-full truncate text-xs leading-4" data-mac="tile-name">{displayName(entry)}</span>
     <span class="text-text-secondary -mt-1 w-full truncate text-[11px] leading-4">{meta}</span>
+    {#if where.hit}
+      <span
+        class="text-text-secondary -mt-1 w-full truncate text-[11px] leading-4"
+        data-testid="hit-folder"
+        title={where.hit.title}>{where.hit.text}</span
+      >
+    {/if}
   {/if}
 </div>

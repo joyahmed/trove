@@ -14,6 +14,8 @@ import { logInfo } from '$lib/api/log';
 import { startBinPoll } from '$lib/utils/bin-poll';
 import { fmtDate } from '$lib/utils/format';
 import { isFinderPurgeKey, isSelectAllKey } from '$lib/utils/key-label';
+import { tildeHome } from '$lib/utils/path-display';
+import { homeFolder } from '$lib/state/home-folder.svelte';
 import { inBinWords, onMac } from '$lib/utils/platform';
 import {
   canRestore,
@@ -66,7 +68,7 @@ export const useRecycleView = () => {
       item,
       icon: keyedIcon(item.isDir ? 'folder' : `ext/${extOf(item.name)}`, 16, item.name),
       deleted: fmtDate(item.deletedMs),
-      origin: originText(item),
+      origin: tildeHome(originText(item), homeFolder.path), // home as `~` (display only)
       kind: kindText(item),
       size: sizeText(item),
       selected: recycle.isSelected(item.id),

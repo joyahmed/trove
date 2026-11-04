@@ -2,6 +2,7 @@
 //! (`indexSearch`, `indexProgress`).
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 
 use serde::Serialize;
 use tauri::State;
@@ -26,6 +27,9 @@ pub struct IndexAnswer {
     /// The roots served from their saved file and not caught up yet: a name made or deleted
     /// while Trove was closed may be missing or still listed.
     pub stale: Vec<String>,
+    /// Mac: the privacy-guarded folders under `roots` the person has not opened, whose names the
+    /// index does not hold (`core::privacy_folders`), so the palette can say "Not searched".
+    pub skipped_guarded: Vec<String>,
 }
 
 /// "indexing D: — 412,000 so far" (plan 21C.2a).
@@ -64,6 +68,7 @@ pub fn index_search(index: State<Index>, text: String, max_results: usize) -> In
             total: 0,
             filling: filling(&index),
             stale: Vec::new(),
+            skipped_guarded: Vec::new(),
         };
     };
     let mut types = HashMap::new();
@@ -81,7 +86,14 @@ pub fn index_search(index: State<Index>, text: String, max_results: usize) -> In
         total,
         filling: filling(&index),
         stale: index.stale(),
+        skipped_guarded: skipped_under(&roots, &crate::core::privacy_folders::unopened()),
     }
+}
+
+/// The unopened guarded folders at or below an index root: the index never walked into them.
+fn skipped_under(roots: &[PathBuf], unopened: &[PathBuf]) -> Vec<String> {
+    let inside = crate::core::privacy_folders::under_any(roots, unopened);
+    crate::core::privacy_folders::in_order(&inside, unopened)
 }
 
 /// The row for one hit. A disk hit is looked up (one deleted since is left out); a WSL

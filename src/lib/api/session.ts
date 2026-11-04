@@ -7,6 +7,9 @@ export interface SavedWindow {
   label: string;
   tabs: string[];
   active: number;
+  /** Where the window was (Rust keeps it for the restore; the tabs list ignores it). Absent
+   * for a window saved before bounds were kept. */
+  bounds?: { x: number; y: number; w: number; h: number; maximized: boolean };
 }
 
 export interface SavedSession {

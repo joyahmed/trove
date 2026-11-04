@@ -1,0 +1,18 @@
+[
+  [
+    {
+      "freeBytes": 40,
+      "label": "Root",
+      "network": false,
+      "path": "/",
+      "totalBytes": 100
+    },
+    {
+      "freeBytes": null,
+      "label": "nas",
+      "network": true,
+      "path": "/mnt/nas",
+      "totalBytes": null
+    }
+  ]
+]

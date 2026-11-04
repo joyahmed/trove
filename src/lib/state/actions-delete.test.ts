@@ -28,6 +28,8 @@ vi.mock('$lib/api/fs', async (importOriginal) => ({
   createFile: vi.fn(async () => ''),
   renameEntry: vi.fn(async () => ''),
   openPath: vi.fn(async () => {}),
+  // what an undo checks first: the new folder it removes is there
+  pathKind: vi.fn(async () => 'dir' as const),
 }));
 vi.mock('$lib/api/shell', () => ({
   drives: vi.fn(async () => []),
@@ -166,6 +168,36 @@ describe('actions.deletePermanently', () => {
       message: "Can't undo a permanent delete",
     });
     expect(undo.undoLabel).toBe("Can't undo a permanent delete");
+  });
+});
+
+describe('a stale trash entry names the bin in the chosen style (Ctrl+Z and the More menu)', () => {
+  beforeEach(() => {
+    resetMocks();
+    tabs.active.location = pathLocation('/scratch');
+  });
+
+  const stale = () => ({
+    label: 'Delete',
+    stale: 'it is no longer in the Recycle Bin',
+    undo: async () => {},
+    redo: async () => {},
+  });
+
+  it.each([
+    ['linux', "Can't undo Delete — it is no longer in the Trash"],
+    ['mac', "Can't undo Delete — it is no longer in the Trash"],
+    ['windows', "Can't undo Delete — it is no longer in the Recycle Bin"],
+  ] as const)('coming from %s: notice and menu label say it', async (style, text) => {
+    comingFrom.choice = style;
+    try {
+      undo.push(stale());
+      expect(undo.undoLabel).toBe(text);
+      await actions.undo();
+      expect(notices.list.at(-1)).toMatchObject({ kind: 'warning', message: text });
+    } finally {
+      comingFrom.choice = 'native';
+    }
   });
 });
 

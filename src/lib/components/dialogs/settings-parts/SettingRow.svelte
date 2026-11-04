@@ -40,6 +40,17 @@
     <RadioRow options={row.options} value={row.get()} label={row.label} onchange={row.set} />
   {:else if row.kind === 'hotkey'}
     <HotkeyRow value={row.get()} label={row.label} onchange={row.set} />
+  {:else if row.kind === 'shortcut'}
+    <div class="settings-shortcut ml-auto flex shrink-0 items-start gap-1">
+      <HotkeyRow value={row.get()} display={row.get()} label={row.label} onchange={row.set} />
+      <button
+        type="button"
+        class="settings-shortcut-reset rounded-control hover:bg-subtle-hover h-8 px-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+        aria-label="Reset {row.label} to its default"
+        disabled={!row.overridden()}
+        onclick={() => row.reset()}>Reset</button
+      >
+    </div>
   {:else if row.kind === 'engine'}
     <SearchEngineRow options={row.options} value={row.get()} label={row.label} onchange={row.set} />
   {:else if row.kind === 'folders'}

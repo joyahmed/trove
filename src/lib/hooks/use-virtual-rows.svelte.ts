@@ -11,6 +11,9 @@ import {
 import { layoutFor, type ViewLayout } from '$lib/data/view-layouts';
 import { useSidewaysWheel } from '$lib/hooks/use-sideways-wheel.svelte';
 import { tabs } from '$lib/state/tabs.svelte';
+import { settings } from '$lib/state/settings.svelte';
+import { onMac } from '$lib/utils/platform';
+import { search } from '$lib/state/search.svelte';
 import {
   chunkAtItem,
   chunkCount,
@@ -55,7 +58,9 @@ export const useVirtualRows = <T>(items: () => T[], options: VirtualOptions<T> =
     version = ++ticks;
   };
 
-  const layout = $derived(layoutFor(tabs.active.view, tabs.active.iconSize));
+  const layout = $derived(
+    layoutFor(tabs.active.view, tabs.active.iconSize, onMac(), settings.compactView, search.active),
+  );
   const perChunk = $derived(itemsPerChunk(layout, width, height));
 
   /**

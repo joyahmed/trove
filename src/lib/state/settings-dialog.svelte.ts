@@ -5,8 +5,10 @@ export type SettingsSectionKey =
   | 'general'
   | 'behaviour'
   | 'appearance'
+  | 'keyboard'
   | 'quick-access'
   | 'context-menu'
+  | 'apps'
   | 'search-index'
   | 'advanced';
 

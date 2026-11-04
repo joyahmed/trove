@@ -64,6 +64,14 @@ class SelectionState {
   }
 
   /**
+   * A click on a row's check box (Item check boxes on): toggles that row like a Ctrl+click,
+   * so check after check builds a set without a key held; Shift adds the range from the anchor.
+   */
+  check(path: string, order: string[], shift = false) {
+    this.click(path, { ctrl: true, shift }, order);
+  }
+
+  /**
    * Right-click on a row. Explorer's rule: an unselected row becomes the sole selection; a
    * selected row keeps the whole set (the menu acts on all of it) and only takes the focus.
    */

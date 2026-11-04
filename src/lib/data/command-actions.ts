@@ -11,7 +11,7 @@ import { actions } from '$lib/state/actions.svelte';
 import { newMenu } from '$lib/data/menus';
 import { searchChipItems } from '$lib/data/search-chips';
 import { search } from '$lib/state/search.svelte';
-import { commandHint, keyLabel } from '$lib/utils/key-label';
+import { actionHint } from '$lib/data/action-chords';
 
 interface Base {
   key: string;
@@ -100,7 +100,7 @@ export const commandTrailing: CommandItem[] = [
     kind: 'icon',
     key: 'details',
     get label() {
-      return `Details pane (${commandHint('detailsPane')})`;
+      return `Details pane (${actionHint('toggle-details') ?? ''})`;
     },
     glyph: 'details',
     run: () => panes.toggle('details'),
@@ -109,7 +109,9 @@ export const commandTrailing: CommandItem[] = [
   {
     kind: 'icon',
     key: 'settings',
-    label: `Settings (${keyLabel('Ctrl+,')})`,
+    get label() {
+      return `Settings (${actionHint('open-settings') ?? ''})`;
+    },
     glyph: 'settings',
     run: () => settingsDialog.show(),
   },

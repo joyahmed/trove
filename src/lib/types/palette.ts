@@ -1,6 +1,7 @@
 // Mirrors src-tauri/src/core/spotlight.rs (serde camelCase) for `AppEntry`; the rest is the
 // palette's own shape.
 import type { GlyphName } from '$lib/data/glyphs';
+import type { FileEntry } from '$lib/types/fs';
 
 export interface AppEntry {
   name: string;
@@ -18,7 +19,7 @@ export interface AppEntry {
 
 /** Categories in the order the palette groups them; also the tie-break in ranking. */
 export type PaletteCategory =
-  'calc' | 'actions' | 'path' | 'recent' | 'places' | 'apps' | 'files' | 'web';
+  'calc' | 'ext' | 'actions' | 'path' | 'recent' | 'places' | 'apps' | 'files' | 'web';
 
 export interface PaletteResult {
   key: string;
@@ -30,10 +31,24 @@ export interface PaletteResult {
   /** a Fluent glyph, or a shell icon key (`ext/…`, `file/…`, `app/…`, `folder`) via `iconUrl` */
   glyph?: GlyphName;
   iconKey?: string;
+  /** extra words that also find the row (an action's synonyms); matched only as a last rung */
+  keywords?: string;
   /** the source already matched the text itself (path mode); the ranker keeps it as a prefix hit */
   matched?: boolean;
+  /** the keyboard chord that runs it without the palette, printed at the row's right (plan 08 A1) */
+  hint?: string;
   /** always the last row, outside the ranking — "Search everywhere for …", "Search the web …" */
   pinLast?: boolean;
+  /** a file or folder on disk the preview pane can show (plan 04 4.4); absent for apps, actions, … */
+  previewPath?: string;
+  /** what the listing already knows about it, when the source had a row (size, modified) */
+  entry?: FileEntry;
+  /** a hint row, not a hit: drawn in the secondary colour ("Not searched: Desktop…") */
+  quiet?: boolean;
+  /** what Enter does, as a word at the row's right ("Allow") */
+  actionLabel?: string;
+  /** Enter does not leave the palette: it stays open and asks its sources again afterwards */
+  keepsOpen?: boolean;
   /** Enter */
   run: () => Promise<void> | void;
   /** Ctrl+Enter: show it in the explorer window instead of opening it */

@@ -25,6 +25,7 @@ import { tabs } from '$lib/state/tabs.svelte';
 import type { NoRecycleBin } from '$lib/api/fs';
 import { noBinQuestion, noRecycleBin, replaceLostNotice } from '$lib/utils/no-bin';
 import { undo, UndoDeclined, type UndoEntry } from '$lib/state/undo.svelte';
+import type { UndoRecord } from '$lib/types/undo';
 import type { ArchiveMode, ArchiveOutput } from '$lib/types/archive';
 import type {
   PartialOutput,
@@ -678,6 +679,20 @@ class TransfersState {
       label: MODE_LABEL[mode],
       what: `${mode} of ${items} to "${nameOf(destination)}"`,
       folder: destination,
+      at: Date.now(),
+      // what a restart can still undo: a plain copy or move. A half-copied folder of a cancel,
+      // or a Replace whose old file sits in the bin, needs this run's job state (G.2).
+      toRecord: (): UndoRecord =>
+        outputs.length === 0
+          ? { kind: 'other', reason: 'it was still running when Trove closed' }
+          : partial || outputs.some((o) => o.replaced !== undefined)
+            ? {
+                kind: 'other',
+                reason: partial ? 'it was cancelled partway' : 'it replaced older files',
+              }
+            : mode === 'move'
+              ? { kind: 'move', pairs: outputs.map((o) => ({ from: o.from, to: o.to })) }
+              : { kind: 'copy', created: outputs.map((o) => o.to), sources: froms, destination },
       undo: async () => {
         await running;
         // a file that replaced an older one, whose old file is in the bin (G.2): the undo

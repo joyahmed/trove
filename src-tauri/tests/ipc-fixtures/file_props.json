@@ -1,0 +1,32 @@
+[
+  {
+    "accessedMs": 3,
+    "archive": true,
+    "createdMs": 1,
+    "hidden": false,
+    "isDir": false,
+    "modifiedMs": 2,
+    "name": "a.txt",
+    "path": "/home/alex/a.txt",
+    "readOnly": false,
+    "size": 10,
+    "sizeOnDisk": 4096,
+    "system": false,
+    "typeName": "Text Document"
+  },
+  {
+    "accessedMs": null,
+    "archive": false,
+    "createdMs": null,
+    "hidden": true,
+    "isDir": true,
+    "modifiedMs": null,
+    "name": "alex",
+    "path": "/home/alex",
+    "readOnly": true,
+    "size": 0,
+    "sizeOnDisk": 0,
+    "system": true,
+    "typeName": "Folder"
+  }
+]

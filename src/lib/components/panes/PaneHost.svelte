@@ -15,7 +15,8 @@
   // Preview hides (stays open) when the list could not keep its 360px; Details still just yields.
   const shown = $derived(
     host.open === 'details' ||
-      (host.open === 'preview' && previewFits(viewportWidth, settings.sidebarWidth)),
+      (host.open === 'preview' &&
+        previewFits(viewportWidth, settings.navPane ? settings.sidebarWidth : 0)),
   );
 </script>
 

@@ -46,7 +46,14 @@ export const tileGeometries: Record<IconSize, TileGeometry> = {
   256: { icon: 256, width: 300, height: 328, gap: 4 },
 };
 
-export const tileGeometry = (size: IconSize): TileGeometry => tileGeometries[size];
+/** A search hit's tile has one more muted line (the folder it lives in): 16 px of text and the
+ * 6 px gap above it, less the 4 px the meta lines overlap by (`-mt-1`). */
+export const HIT_LINE_PX = 18;
+
+export const tileGeometry = (size: IconSize, hitLine: boolean = false): TileGeometry => {
+  const t = tileGeometries[size];
+  return hitLine ? { ...t, height: t.height + HIT_LINE_PX } : t;
+};
 
 /**
  * A grid group heading: the 28 px of a details heading plus 6 px of air above it, so a bucket
@@ -58,11 +65,18 @@ const GRID_HEADER_PX = 34;
 /** Explorer's Tiles: one card, the icon beside three lines of text. */
 export const TILES_CARD = { width: 256, height: 64, gap: 4, icon: 48 } as const;
 
+/** A search hit's card has a 4th text line (name, type, size, folder = 64 px, the card's whole
+ * height, so the glyphs touch the card's edges): 8 px more height gives it 4 px of air above and below. */
+export const TILES_HIT_EXTRA_PX = 8;
+
+export const tilesCardHeight = (hitLine: boolean = false): number =>
+  TILES_CARD.height + (hitLine ? TILES_HIT_EXTRA_PX : 0);
+
 /** Explorer's Content: one full-width row per item, two lines tall. */
 export const CONTENT_ROW_PX = 52;
 
-const gridLayout = (size: IconSize): ViewLayout => {
-  const t = tileGeometry(size);
+const gridLayout = (size: IconSize, hitLine: boolean): ViewLayout => {
+  const t = tileGeometry(size, hitLine);
   return {
     horizontal: false,
     chunkSize: t.height + t.gap,
@@ -78,8 +92,21 @@ const gridLayout = (size: IconSize): ViewLayout => {
  * `--spacing-row` under `[data-mac='file-list']` in `styles/mac/panes.css` — change both. */
 export const DETAILS_ROW_PX = 28;
 export const MAC_DETAILS_ROW_PX = 24;
-export const detailsRowPx = (mac: boolean = onMac()): number =>
-  mac ? MAC_DETAILS_ROW_PX : DETAILS_ROW_PX;
+/**
+ * "Compact view" (plan 06 6.3): Explorer's Windows 10 density, 22 px rows, which Windows 11 keeps
+ * behind that very toggle. A Mac drops from Finder's 24 to 20 — the 16 px icon still fits with
+ * 2 px either side. The CSS side is `--spacing-row`, set inline on the list (`use-file-list`).
+ */
+export const COMPACT_DETAILS_ROW_PX = 22;
+export const MAC_COMPACT_DETAILS_ROW_PX = 20;
+export const detailsRowPx = (mac: boolean = onMac(), compact = false): number =>
+  compact
+    ? mac
+      ? MAC_COMPACT_DETAILS_ROW_PX
+      : COMPACT_DETAILS_ROW_PX
+    : mac
+      ? MAC_DETAILS_ROW_PX
+      : DETAILS_ROW_PX;
 
 export const viewLayouts: Record<ListViewMode, ViewLayout> = {
   // FileRow: h-row (28 px; 24 px on a Mac, see layoutFor), full width
@@ -103,7 +130,7 @@ export const viewLayouts: Record<ListViewMode, ViewLayout> = {
     chunkClass: 'flex h-full flex-col',
   },
   // FileTile at Medium: 120 × 128 px + gap-1 (4 px)
-  grid: gridLayout(48),
+  grid: gridLayout(48, false),
   // Small icons: the List view's FileListItem (224 × 22 px), but flowing across then down,
   // the gap-x-2 (8 px) between them as in List
   small: {
@@ -142,12 +169,16 @@ export const layoutFor = (
   view: ViewMode,
   iconSize: IconSize,
   mac: boolean = onMac(),
+  compact = false,
+  hitLine: boolean = false,
 ): ViewLayout => {
-  if (view === 'grid') return gridLayout(iconSize);
+  if (view === 'grid') return gridLayout(iconSize, hitLine);
+  if (view === 'tiles')
+    return { ...viewLayouts.tiles, chunkSize: tilesCardHeight(hitLine) + TILES_CARD.gap };
   // headerSize stays 28: a group heading is a chunk of its own and its button is 28 px tall.
   // Gallery is not drawn by the file list (`GalleryView`); a list still asked for it gets Details.
   if (view === 'details' || view === 'gallery')
-    return { ...viewLayouts.details, chunkSize: detailsRowPx(mac) };
+    return { ...viewLayouts.details, chunkSize: detailsRowPx(mac, compact) };
   return viewLayouts[view];
 };
 

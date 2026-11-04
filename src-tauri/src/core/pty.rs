@@ -7,6 +7,7 @@ use std::io::{Read, Write};
 
 use portable_pty::{ChildKiller, CommandBuilder, MasterPty, NativePtySystem, PtySize, PtySystem};
 
+use crate::core::pty_cwd::{self, OscScanner};
 use crate::core::wsl;
 
 /// Which kind of shell a session runs; a navigation is followed only within the same kind.
@@ -264,12 +265,28 @@ const READ_CHUNK: usize = 64 * 1024;
 impl PtySession {
     /// Start `cmd` in a `cols`×`rows` console. `on_output` gets each chunk of decoded output
     /// as it arrives; `on_exit` is called once with the exit code when the child ends. The
-    /// owner should drop the session then, which ends the output stream.
+    /// owner should drop the session then, which ends the output stream. The app spawns through
+    /// `spawn_with_cwd`; this is the tests' shorthand for a session whose folder nobody watches.
+    #[cfg(test)]
     pub fn spawn(
         cmd: PtyCommand,
         cols: u16,
         rows: u16,
         on_output: impl Fn(String) + Send + 'static,
+        on_exit: impl FnOnce(Option<u32>) + Send + 'static,
+    ) -> std::io::Result<PtySession> {
+        Self::spawn_with_cwd(cmd, cols, rows, on_output, |_| {}, on_exit)
+    }
+
+    /// `spawn`, plus `on_cwd`: called with the folder each time the shell reports a NEW one
+    /// (OSC 7 / OSC 9;9, `core::pty_cwd`) that exists on this machine. The bytes still reach
+    /// `on_output` unchanged. A shell that reports nothing never calls it.
+    pub fn spawn_with_cwd(
+        cmd: PtyCommand,
+        cols: u16,
+        rows: u16,
+        on_output: impl Fn(String) + Send + 'static,
+        on_cwd: impl Fn(String) + Send + 'static,
         on_exit: impl FnOnce(Option<u32>) + Send + 'static,
     ) -> std::io::Result<PtySession> {
         let pair = NativePtySystem::default()
@@ -301,16 +318,29 @@ impl PtySession {
         let writer = pair.master.take_writer().map_err(std::io::Error::other)?;
         let killer = child.clone_killer();
         let pid = child.process_id();
+        let kind = cmd.kind.clone();
 
         std::thread::Builder::new()
             .name("pty-reader".into())
             .spawn(move || {
                 let mut buf = vec![0u8; READ_CHUNK];
                 let mut carry: Vec<u8> = Vec::new();
+                let mut scanner = OscScanner::new();
+                let local_host = pty_cwd::local_hostname();
+                // a prompt reports its folder on every line; only a change is news
+                let mut last_cwd: Option<String> = None;
                 loop {
                     match reader.read(&mut buf) {
                         Ok(0) | Err(_) => break,
                         Ok(n) => {
+                            for report in scanner.feed(&buf[..n]) {
+                                if let Some(dir) = pty_cwd::resolve(&report, &kind, &local_host) {
+                                    if last_cwd.as_deref() != Some(dir.as_str()) {
+                                        last_cwd = Some(dir.clone());
+                                        on_cwd(dir);
+                                    }
+                                }
+                            }
                             carry.extend_from_slice(&buf[..n]);
                             let (text, rest) = split_utf8(std::mem::take(&mut carry));
                             carry = rest;
@@ -782,6 +812,91 @@ mod tests {
         assert!(
             pump(&mut session, &|_, s| !s.busy()),
             "still busy after sleep ended"
+        );
+    }
+
+    /// Plan 08 E1, the real check: a bash whose prompt emits OSC 7 (set by THIS harness through
+    /// its own rc file — the app never sets `PROMPT_COMMAND`) reports each `cd`, the folder
+    /// arrives on `on_cwd`, a folder that does not exist is never reported, and the escape
+    /// itself still reaches `on_output` unchanged.
+    #[cfg(unix)]
+    #[test]
+    fn a_shell_that_emits_osc7_reports_each_cd() {
+        use std::sync::mpsc;
+        use std::time::{Duration, Instant};
+
+        let root = std::env::temp_dir().join(format!("trove-osc7-{}", std::process::id()));
+        let into = root.join("dir with space");
+        std::fs::create_dir_all(&into).unwrap();
+        let root = root.canonicalize().unwrap();
+        let into = into.canonicalize().unwrap();
+        let rc = root.join("rc.bash");
+        // the URI must percent-encode the space; this is what VTE's `__vte_urlencode` does too
+        std::fs::write(
+            &rc,
+            "PROMPT_COMMAND='printf \"\\033]7;file://%s%s\\033\\\\\" \"$HOSTNAME\" \"${PWD// /%20}\"'\n",
+        )
+        .unwrap();
+        let (out_tx, out_rx) = mpsc::channel::<String>();
+        let (cwd_tx, cwd_rx) = mpsc::channel::<String>();
+        let cmd = PtyCommand {
+            program: "/bin/bash".into(),
+            args: vec![
+                "--noprofile".into(),
+                "--rcfile".into(),
+                rc.to_string_lossy().into_owned(),
+                "-i".into(),
+            ],
+            cwd: root.to_string_lossy().into_owned(),
+            kind: SessionKind::Unix,
+        };
+        let mut session = PtySession::spawn_with_cwd(
+            cmd,
+            80,
+            24,
+            move |chunk| {
+                let _ = out_tx.send(chunk);
+            },
+            move |dir| {
+                let _ = cwd_tx.send(dir);
+            },
+            |_| {},
+        )
+        .expect("spawn bash");
+        let wait_cwd = |want: &str| {
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let mut seen = Vec::new();
+            while Instant::now() < deadline {
+                if let Ok(dir) = cwd_rx.recv_timeout(Duration::from_millis(50)) {
+                    if dir == want {
+                        return seen;
+                    }
+                    seen.push(dir);
+                }
+            }
+            panic!("never saw {want:?}; saw {seen:?}");
+        };
+        let root_s = root.to_string_lossy().into_owned();
+        let into_s = into.to_string_lossy().into_owned();
+        // the first prompt reports the start folder
+        wait_cwd(&root_s);
+        session
+            .write(format!("cd '{}'\n", sh_quote(&into_s)).as_bytes())
+            .unwrap();
+        wait_cwd(&into_s);
+        // a prompt that does not move (plain Enter) is not news
+        session.write(b"\n").unwrap();
+        // a cd that fails leaves the shell where it was: nothing new is reported
+        session.write(b"cd /no/such/trove/dir\n").unwrap();
+        session.write(b"cd ..\n").unwrap();
+        let between = wait_cwd(&root_s);
+        assert!(between.is_empty(), "unexpected reports {between:?}");
+        session.kill();
+        let all: String = out_rx.try_iter().collect();
+        let _ = std::fs::remove_dir_all(&root);
+        assert!(
+            all.contains("\x1b]7;file://"),
+            "the escape must reach the emulator unchanged: {all:?}"
         );
     }
 }

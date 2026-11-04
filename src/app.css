@@ -208,6 +208,11 @@
   /* A drive getting full (sidebar usage bar, 80-90% used): amber, before --color-critical at 90%.
      #a86200 is 3.96:1 on --color-layer #edeae3, the 3:1 floor for a graphic. */
   --color-caution: #a86200;
+  /* A WSL distro that is running (the sidebar's dot): green, 4.4:1 on --color-layer #edeae3. */
+  --color-running: #1f7a46;
+  /* A cloud file kept on this device (file-list cloud badge, plan 05 5.4): Fluent's success green.
+     #107c10 is 4.6:1 on --color-layer #edeae3. */
+  --color-synced: #107c10;
   --color-folder: #ffd76a;
   --color-folder-shade: #f0b93b;
   /* File-type tints for the drawn file icons off Windows (plan 14, data/file-categories.ts).
@@ -338,6 +343,8 @@
   --color-selection-stroke: rgb(255 255 255 / 0.28);
   --color-divider: #2b2b2b;
   --color-caution: #e8a33d;
+  --color-running: #56c98a;
+  --color-synced: #6ccb5f;
   --shadow-flyout: 0 8px 16px rgb(0 0 0 / 0.28);
   --color-ftype-document: #6ea8ff;
   --color-ftype-pdf: #ff7b72;
@@ -530,9 +537,11 @@ body {
    must beat those utilities. The content fills are in `@layer base` so any utility a component
    sets on its own root (now or later) still wins over them. The structure they key on is
    Shell.svelte's: root (`rounded-window`) > TitleBar, NavBar, the `bg-layer` body > [the row:
-   Sidebar FIRST, then the list, then PaneHost], TerminalHost, TransferPanel, StatusBar (`footer`).
-   ⛔ The sidebar is skipped by POSITION (`:first-child`), not by tag: PaneHost's root is an
-   `aside` too. Shell's test (`shell-glass.test.ts`) fails if that structure moves. */
+   Sidebar FIRST when shown, then the list, then PaneHost], TerminalHost, TransferPanel, StatusBar
+   (`footer`). ⛔ Inside the row the sidebar is skipped by its `data-mac='sidebar'`, not by tag
+   (PaneHost's root is an `aside` too) and not by position: the Navigation pane toggle (plan 06
+   6.3) can take it out, and the list is then the row's first child and still needs the content
+   tint. Shell's test (`shell-glass.test.ts`) fails if that structure moves. */
 :root[data-os='macos'] {
   --glass-chrome: color-mix(in srgb, var(--color-mica) 30%, transparent);
   --glass-content: color-mix(in srgb, var(--color-layer) 40%, transparent);
@@ -559,7 +568,7 @@ body {
 }
 @layer base {
   :root[data-os='macos'] .rounded-window > .bg-layer > :not(:first-child):not(footer),
-  :root[data-os='macos'] .rounded-window > .bg-layer > :first-child > :not(:first-child) {
+  :root[data-os='macos'] .rounded-window > .bg-layer > :first-child > :not([data-mac='sidebar']) {
     background-color: var(--glass-content);
   }
 }
@@ -645,6 +654,8 @@ body {
     --color-close-hover: Highlight;
     --color-critical: LinkText;
     --color-caution: LinkText;
+    --color-running: CanvasText;
+    --color-synced: CanvasText;
     --glass-chrome: Canvas;
     --glass-content: Canvas;
     --glass-field: Field;
@@ -663,7 +674,7 @@ body {
     background: Canvas;
   }
   :root[data-os='macos'] .rounded-window > .bg-layer > :not(:first-child):not(footer),
-  :root[data-os='macos'] .rounded-window > .bg-layer > :first-child > :not(:first-child) {
+  :root[data-os='macos'] .rounded-window > .bg-layer > :first-child > :not([data-mac='sidebar']) {
     background: Canvas;
   }
   [aria-selected='true'] {

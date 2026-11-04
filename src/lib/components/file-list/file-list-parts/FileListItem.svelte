@@ -2,9 +2,12 @@
 <script lang="ts">
   import { rowId } from '$lib/utils/row-id';
   import type { FileEntry } from '$lib/types/fs';
-  import { dropPathOf, shownName } from '$lib/utils/app-bundle';
+  import { dropPathOf } from '$lib/utils/app-bundle';
+  import { displayName } from '$lib/data/display-name';
   import { useInfotip } from '$lib/hooks/use-infotip.svelte';
+  import { useHitFolder } from '$lib/hooks/use-hit-folder.svelte';
   import EntryIcon from '$lib/components/ui/EntryIcon.svelte';
+  import ItemCheck from './ItemCheck.svelte';
   import Infotip from './Infotip.svelte';
   import RenameBox from './RenameBox.svelte';
 
@@ -41,6 +44,7 @@
     onopen,
   }: Props = $props();
   const tip = useInfotip(() => entry);
+  const where = useHitFolder(() => entry);
 </script>
 
 <!-- svelte-ignore a11y_click_events_have_key_events, a11y_interactive_supports_focus -->
@@ -74,10 +78,19 @@
     <span class="bg-accent absolute top-1 bottom-1 left-0 w-[3px] rounded-full" data-mac="sel-bar"
     ></span>
   {/if}
+  <ItemCheck {selected} />
   <EntryIcon {entry} size={16} />
   {#if renaming}
     <RenameBox wide />
   {:else}
-    <span class="truncate">{shownName(entry)}</span>
+    <span class="truncate">{displayName(entry)}</span>
+    {#if where.hit}
+      <!-- one line is all a List row has (22 px, fixed): the folder trails the name, muted -->
+      <span
+        class="text-text-secondary min-w-0 shrink-[3] truncate text-[11px]"
+        data-testid="hit-folder"
+        title={where.hit.title}>{where.hit.text}</span
+      >
+    {/if}
   {/if}
 </div>

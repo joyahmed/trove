@@ -277,13 +277,71 @@ pub fn all_apps(roots: &[PathBuf]) -> Vec<AppEntry> {
 /// ⛔ Per root, not in total (BUG-S2): one total cap let a recent repo's 20 READMEs fill every
 /// slot in milliseconds, and the recent folder after it was never walked. The caller ranks
 /// the merged list and keeps its best 20; `node_modules` is never entered (`search::skip_dir`).
+///
+/// ⛔ The palette picks these roots on its own (known folders, recents, every drive), so a root
+/// in a Mac privacy-guarded folder the person has not opened, or on a network share or an
+/// automount, is dropped (`palette_roots`), and the walk below a root never enters either. Each
+/// ⌘K search raised the Desktop, Apple Music, Photos and network-volume prompts (Mac test,
+/// 2026-11-04).
+///
+/// What was left out is said, not hidden: `skipped_guarded` names each unopened guarded folder
+/// a root was dropped for or the walk did not enter, so ⌘K can offer "Not searched: Desktop,
+/// Documents… — Allow" (each opened at a moment the person chose).
 pub fn find_files(
     text: &str,
     roots: &[PathBuf],
     max_depth: usize,
     max_results: usize,
     budget: Duration,
-) -> Vec<FileEntry> {
+) -> FoundFiles {
+    let network = crate::core::mounts::walk_skip_points();
+    let guarded = crate::core::privacy_folders::unopened();
+    find_files_fenced(
+        text,
+        roots,
+        max_depth,
+        max_results,
+        budget,
+        &network,
+        &guarded,
+    )
+}
+
+/// The palette's file hits, and the guarded folders the search left out (in the guarded list's
+/// order: Desktop, Documents, Downloads…).
+#[derive(Debug, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FoundFiles {
+    pub entries: Vec<FileEntry>,
+    pub skipped_guarded: Vec<String>,
+}
+
+/// `roots` minus each one inside an unopened guarded folder or on a skipped mount (a share, an
+/// automount). Order kept.
+pub fn palette_roots(roots: &[PathBuf], guarded: &[PathBuf], skip: &[PathBuf]) -> Vec<PathBuf> {
+    roots
+        .iter()
+        .filter(|r| !guarded.iter().chain(skip).any(|g| r.starts_with(g)))
+        .cloned()
+        .collect()
+}
+
+/// `find_files` with the fences as parameters, so a test can name them.
+fn find_files_fenced(
+    text: &str,
+    asked: &[PathBuf],
+    max_depth: usize,
+    max_results: usize,
+    budget: Duration,
+    network: &[PathBuf],
+    guarded: &[PathBuf],
+) -> FoundFiles {
+    let roots = palette_roots(asked, guarded, network);
+    // a root dropped for being inside an unopened guarded folder: that folder was not searched
+    let mut skipped: Vec<PathBuf> = asked
+        .iter()
+        .filter_map(|r| crate::core::privacy_folders::root_of(r, guarded).cloned())
+        .collect();
     let started = Instant::now();
     let query = SearchQuery {
         text: text.to_string(),
@@ -291,7 +349,7 @@ pub fn find_files(
         ..SearchQuery::default()
     };
     let mut hits: Vec<FileEntry> = Vec::new();
-    for root in roots {
+    for root in &roots {
         // ⛔ `break` on the two "we are done" conditions only. A root that is not a directory is
         // `continue` — the doc comment above promises it is *skipped*, and it used to stop the
         // loop instead, so one stopped WSL distro or unplugged drive silently killed the whole
@@ -320,17 +378,23 @@ pub fn find_files(
             }
         };
         // a small batch so the cancel flag is looked at often
-        let _ = search::walk_every(
+        let _ = search::walk_skipping(
             std::slice::from_ref(root),
             &query,
             false,
             &cancel,
             8,
             Duration::from_millis(30),
+            network,
+            guarded,
             &mut sink,
+            &mut skipped,
         );
     }
-    hits
+    FoundFiles {
+        entries: hits,
+        skipped_guarded: crate::core::privacy_folders::in_order(&skipped, guarded),
+    }
 }
 
 /// `budget` for `find_files` as the command uses it.
@@ -394,6 +458,71 @@ mod tests {
     }
 
     #[test]
+    fn the_palette_search_never_reads_an_unopened_guarded_folder() {
+        // a fake Mac home: Desktop and Music guarded, Desktop not opened, a share mounted below
+        let s = scratch("guarded");
+        let home = s.0.join("home");
+        let desktop = home.join("Desktop");
+        let share = home.join("nas");
+        for d in [&desktop, &home.join("Projects"), &share] {
+            std::fs::create_dir_all(d).unwrap();
+        }
+        std::fs::write(desktop.join("plan-desk.txt"), b"x").unwrap();
+        std::fs::write(home.join("Projects").join("plan-work.txt"), b"x").unwrap();
+        std::fs::write(share.join("plan-nas.txt"), b"x").unwrap();
+        let guarded = [desktop.clone()];
+        let network = [share.clone()];
+        // the roots the palette asks for: the home (as `/` would reach it), Desktop as a known
+        // folder, the share as a recent folder
+        let roots = palette_roots(
+            &[home.clone(), desktop.clone(), share.clone()],
+            &guarded,
+            &network,
+        );
+        assert_eq!(roots, std::slice::from_ref(&home));
+        let hits = find_files_fenced(
+            "plan",
+            &[home.clone(), desktop.clone(), share.clone()],
+            4,
+            50,
+            Duration::from_secs(5),
+            &network,
+            &guarded,
+        );
+        let names: Vec<&str> = hits.entries.iter().map(|e| e.name.as_str()).collect();
+        assert_eq!(names, ["plan-work.txt"]);
+        // ...and it says what it left out: Desktop, once (dropped as a root AND not entered
+        // from the home), never the share (not a privacy folder)
+        assert_eq!(
+            hits.skipped_guarded,
+            [desktop.to_string_lossy().into_owned()]
+        );
+        // a search that never came near a guarded folder reports nothing
+        let elsewhere = find_files_fenced(
+            "plan",
+            &[home.join("Projects")],
+            4,
+            50,
+            Duration::from_secs(5),
+            &network,
+            &guarded,
+        );
+        assert!(elsewhere.skipped_guarded.is_empty());
+        // once Desktop is opened, it is searched like any folder
+        let opened = find_files_fenced(
+            "plan",
+            std::slice::from_ref(&desktop),
+            4,
+            50,
+            Duration::from_secs(5),
+            &network,
+            &[],
+        );
+        assert_eq!(opened.entries.len(), 1);
+        assert!(opened.skipped_guarded.is_empty());
+    }
+
+    #[test]
     fn find_files_matches_within_depth_and_stops_at_the_cap() {
         let s = scratch("files");
         let deep = s.0.join("a").join("b").join("c").join("d");
@@ -411,7 +540,8 @@ mod tests {
             3,
             50,
             Duration::from_secs(5),
-        );
+        )
+        .entries;
         let names: Vec<&str> = all.iter().map(|e| e.name.as_str()).collect();
         assert_eq!(names.len(), 6, "{names:?}");
         assert!(names.contains(&"report-deep.txt"));
@@ -424,7 +554,8 @@ mod tests {
             3,
             2,
             Duration::from_secs(5),
-        );
+        )
+        .entries;
         assert_eq!(capped.len(), 2);
     }
 
@@ -453,7 +584,8 @@ mod tests {
             4,
             20,
             Duration::from_secs(5),
-        );
+        )
+        .entries;
 
         assert!(hits
             .iter()
@@ -492,7 +624,8 @@ mod tests {
             3,
             50,
             Duration::from_secs(5),
-        );
+        )
+        .entries;
         let names: Vec<&str> = hits.iter().map(|e| e.name.as_str()).collect();
         assert_eq!(
             names,

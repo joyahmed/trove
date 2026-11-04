@@ -1,0 +1,91 @@
+# Commands in generate_handler! with nothing structural to put in a fixture (plan 07 F.1).
+# src/ipc_contract.rs fails when a handler is in neither a fixture nor this list.
+# One command per line; '#' starts a comment.
+open_path  # answers ()
+open_with_app  # answers ()
+open_with_dialog  # answers ()
+open_url  # answers ()
+rename_entry  # string, number, or Vec<String> response
+retry_elevated  # string, number, or Vec<String> response
+palette_folder_count  # number or null
+unopened_guarded_folders  # Vec<String>
+allow_guarded_folders  # Vec<String>
+create_folder  # string, number, or Vec<String> response
+create_file  # string, number, or Vec<String> response
+delete_entries  # answers ()
+startup_painted  # answers ()
+compress_entries  # string, number, or Vec<String> response
+user_profile  # string, number, or Vec<String> response
+one_drive_root  # string, number, or Vec<String> response
+read_settings  # serde_json::Value, the frontend types it unknown
+write_settings  # answers ()
+read_undo_log  # serde_json::Value, the frontend sanitizes it (utils/undo-records.ts)
+write_undo_log  # answers ()
+merge_settings  # answers ()
+save_window_tabs  # answers ()
+hold_windows  # answers ()
+wsl_home  # string, number, or Vec<String> response
+open_terminal  # answers ()
+wsl_running_distros  # string, number, or Vec<String> response
+transfer_conflicts  # string, number, or Vec<String> response
+start_transfer  # string, number, or Vec<String> response
+cancel_transfer  # answers ()
+remove_emptied_folders  # string, number, or Vec<String> response
+restore_from_trash  # answers ()
+undo_replace  # answers ()
+replace_no_bin  # string, number, or Vec<String> response
+bin_readable  # answers ()
+clipboard_write_paths  # answers ()
+clipboard_write_paths_text  # answers ()
+clipboard_write_text  # answers ()
+same_volume  # bool response
+archive_conflicts  # string, number, or Vec<String> response
+start_extract  # string, number, or Vec<String> response
+start_extract_here  # string, number, or Vec<String> response
+start_compress  # string, number, or Vec<String> response
+start_open_inner  # string, number, or Vec<String> response
+watch_path  # answers ()
+unwatch_path  # answers ()
+start_search  # string, number, or Vec<String> response
+cancel_search  # answers ()
+set_file_attributes  # answers ()
+set_cloud_pin  # answers ()
+start_folder_totals  # string, number, or Vec<String> response
+cancel_folder_totals  # answers ()
+start_folder_sizes  # string, number, or Vec<String> response
+pty_spawn  # string, number, or Vec<String> response
+pty_write  # answers ()
+pty_resize  # answers ()
+pty_kill  # answers ()
+default_handler_apply  # answers ()
+default_handler_revert  # answers ()
+set_resident  # answers ()
+is_resident  # bool response
+set_start_with_windows  # answers ()
+start_with_windows  # bool response
+register_hotkey  # answers ()
+set_hotkey_recording  # answers ()
+toggle_palette  # answers ()
+hide_palette  # answers ()
+resize_palette  # answers ()
+show_main  # answers ()
+launch_app  # answers ()
+index_wsl  # answers ()
+index_disk_size  # string, number, or Vec<String> response
+index_forget  # string, number, or Vec<String> response
+run_shell_verb  # answers ()
+shell_menu_invoke  # answers ()
+run_custom_command  # answers ()
+resolve_custom_program  # string, number, or Vec<String> response
+open_window  # string, number, or Vec<String> response
+show_window  # answers ()
+snap_window  # answers ()
+arrange_windows  # string, number, or Vec<String> response
+recycle_restore  # answers ()
+recycle_purge  # answers ()
+recycle_empty  # answers ()
+open_in_explorer  # answers ()
+open_apps_settings  # answers ()
+update_ready  # string, number, or Vec<String> response
+update_restart  # answers ()
+mapped_drives  # string, number, or Vec<String> response

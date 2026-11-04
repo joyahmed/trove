@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Trove's MSIX manifest (plan 22.2.3). A TEST package: the Identity below is a placeholder, not
+  the Partner Center one (that swap is plan 22.2.1, JOY). scripts/pack-msix.ps1 fills {VERSION}
+  and {ARCH} and packs it with the Windows SDK's makeappx.
+  - runFullTrust: Trove is a plain Win32 desktop app, not sandboxed.
+  - AppExecutionAlias trove.exe: `trove` from Run / a terminal; replaces NSIS' App Paths key.
+  - StartupTask TroveStartup: "Start with Windows" in the Store build (core/startup.rs);
+    replaces the Run key. Disabled until the user turns it on in Settings.
+-->
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap3="http://schemas.microsoft.com/appx/manifest/uap/windows10/3"
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  IgnorableNamespaces="uap uap3 desktop rescap">
+
+  <Identity
+    Name="TroveTest.Placeholder"
+    Publisher="CN=Trove Test Placeholder"
+    Version="{VERSION}"
+    ProcessorArchitecture="{ARCH}" />
+
+  <Properties>
+    <DisplayName>Trove (test package)</DisplayName>
+    <PublisherDisplayName>Trove Test Placeholder</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+  </Properties>
+
+  <Dependencies>
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.17763.0" MaxVersionTested="10.0.26100.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Applications>
+    <Application Id="Trove" Executable="trove.exe" EntryPoint="Windows.FullTrustApplication">
+      <uap:VisualElements
+        DisplayName="Trove"
+        Description="A file manager"
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png">
+        <!-- no Square310x310Logo: makeappx refuses it without a Wide310x150Logo, which
+             `tauri icon` does not make -->
+        <uap:DefaultTile Square71x71Logo="Assets\Square71x71Logo.png" />
+      </uap:VisualElements>
+      <Extensions>
+        <uap3:Extension Category="windows.appExecutionAlias" Executable="trove.exe" EntryPoint="Windows.FullTrustApplication">
+          <uap3:AppExecutionAlias>
+            <desktop:ExecutionAlias Alias="trove.exe" />
+          </uap3:AppExecutionAlias>
+        </uap3:Extension>
+        <desktop:Extension Category="windows.startupTask" Executable="trove.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="TroveStartup" Enabled="false" DisplayName="Trove" />
+        </desktop:Extension>
+      </Extensions>
+    </Application>
+  </Applications>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+  </Capabilities>
+</Package>

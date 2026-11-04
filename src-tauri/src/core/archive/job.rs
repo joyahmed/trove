@@ -218,6 +218,9 @@ pub(crate) fn open_source<'c>(
         Format::Zip => Ok(Box::new(zip_fmt::ZipSource::open(archive)?)),
         Format::SevenZ => Ok(Box::new(sevenz_fmt::SevenZSource::open(archive, cancel)?)),
         Format::Tar(codec) => Ok(Box::new(tar_fmt::TarSource::open(archive, codec, cancel)?)),
+        #[cfg(feature = "rar")]
+        Format::Rar => Ok(Box::new(super::rar_fmt::RarSource::open(archive, cancel)?)),
+        #[allow(unreachable_patterns)]
         _ => Err(Error::new(ErrorKind::Unsupported, "not supported yet")),
     }
 }

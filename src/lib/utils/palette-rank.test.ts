@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import type { PaletteResult } from '$lib/types/palette';
-import { MATCH_EXACT, matchScore, rank, renderOrder } from './palette-rank';
+import { paletteActions } from '$lib/data/palette-actions';
+import {
+  keywordScore,
+  MATCH_EXACT,
+  MATCH_KEYWORD,
+  matchScore,
+  rank,
+  renderOrder,
+} from './palette-rank';
 
 const r = (title: string, category: PaletteResult['category']): PaletteResult => ({
   key: `${category}:${title}`,
@@ -229,5 +237,42 @@ describe('rank dedupe', () => {
 
   it('falls back to the key when there is no identity', () => {
     expect(rank([r('note', 'files'), r('note', 'apps')], 'note')).toHaveLength(2);
+  });
+});
+
+describe('action keywords (real-app click test, 2026-11-04)', () => {
+  const actionRows = (): PaletteResult[] =>
+    paletteActions.map((a) => ({
+      key: `action:${a.key}`,
+      category: 'actions',
+      title: a.label,
+      detail: a.keywords,
+      keywords: a.keywords,
+      run: () => {},
+    }));
+  const top = (text: string) => rank(actionRows(), text)[0]?.key;
+
+  it('"tab set" finds Save tabs as… (every typed word starts a title or keyword word)', () => {
+    expect(top('tab set')).toBe('action:save-tab-set');
+    expect(top('set tab')).toBe('action:save-tab-set');
+  });
+  it('the obvious synonyms find their action', () => {
+    expect(top('preferences')).toBe('action:open-settings');
+    expect(top('options')).toBe('action:open-settings');
+    expect(top('shell')).toBe('action:open-terminal');
+    expect(top('console')).toBe('action:open-terminal');
+    for (const q of ['trash', 'bin', 'recycle'])
+      expect(rank(actionRows(), q).map((x) => x.key)).toContain('action:open-recycle-bin');
+  });
+  it('a keyword hit is the bottom rung, so a title match always sorts above it', () => {
+    expect(keywordScore('Save tabs as…', 'tab set', 'tab set')).toBe(MATCH_KEYWORD);
+    expect(keywordScore('Save tabs as…', 'tab set', 'tab zzz')).toBe(0);
+    const file = r('settings.json', 'files');
+    const settingsAction = { ...r('Open settings', 'actions'), keywords: 'preferences' };
+    const pref = { ...r('Folder preferences.txt', 'files') };
+    expect(rank([settingsAction, pref, file], 'preferences').map((x) => x.title)).toEqual([
+      'Folder preferences.txt',
+      'Open settings',
+    ]);
   });
 });

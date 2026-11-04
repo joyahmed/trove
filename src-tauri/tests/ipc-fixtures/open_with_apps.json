@@ -1,0 +1,16 @@
+[
+  [
+    {
+      "icon": "file/gedit",
+      "id": "gedit.desktop",
+      "isDefault": true,
+      "name": "Text Editor"
+    },
+    {
+      "icon": null,
+      "id": "code.desktop",
+      "isDefault": false,
+      "name": "Code"
+    }
+  ]
+]

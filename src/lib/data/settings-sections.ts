@@ -4,8 +4,10 @@
 import type { KnownFolderKey } from '$lib/types/shell';
 import { hostStyle, toChoice, type ComingFrom, type OsStyle } from '$lib/state/coming-from.svelte';
 import { confirm } from '$lib/state/confirm.svelte';
+import { evidenceFor } from '$lib/data/detect-evidence';
 import { customize } from '$lib/state/customize.svelte';
 import { defaultHandler } from '$lib/state/default-handler.svelte';
+import { guardedFolders } from '$lib/state/guarded-folders.svelte';
 import { indexSettings } from '$lib/state/index-settings.svelte';
 import type { SettingsSectionKey } from '$lib/state/settings-dialog.svelte';
 import {
@@ -18,9 +20,20 @@ import {
 } from '$lib/state/settings.svelte';
 import { shellVerbs } from '$lib/state/shell-verbs.svelte';
 import { spotlight } from '$lib/state/spotlight-bridge.svelte';
+import { guardedNames } from '$lib/utils/guarded-folders';
 import { chordWarning } from '$lib/utils/hotkeys';
+import { keyLabel } from '$lib/utils/key-label';
+import { actionHint, defaultChord } from '$lib/data/action-chords';
+import {
+  actionLabel,
+  isOverridden,
+  keyboardActions,
+  rebind,
+  resetAllChords,
+  resetChord,
+} from '$lib/data/shortcut-overrides';
 import { locationLabel, THIS_PC } from '$lib/utils/location';
-import { binName, onLinux, onMac, onWindows, storeBuild } from '$lib/utils/platform';
+import { binName, onLinux, onMac, onWindows, readsRar, storeBuild } from '$lib/utils/platform';
 import { explorerViewOrder, isStep, stepLabel } from '$lib/utils/view-steps';
 
 export interface RadioOption {
@@ -50,6 +63,15 @@ export type SettingRow =
   /** no control: a feature this build cannot offer, with the reason as its description */
   | (RowBase & { kind: 'info' })
   | (RowBase & { kind: 'hotkey'; get: () => string; set: (chord: string) => unknown })
+  | (RowBase & {
+      kind: 'shortcut';
+      /** the chord in force, as the menus print it */
+      get: () => string;
+      overridden: () => boolean;
+      /** saves a recorded chord; returns the reason it was refused, or null when kept */
+      set: (recorded: string) => string | null;
+      reset: () => unknown;
+    })
   | (RowBase & {
       kind: 'engine';
       /** the named engines; the row adds its own "Custom…" choice */
@@ -104,7 +126,37 @@ const forcedByDefault = () => !storeBuild() && settings.defaultHandler.applied;
 const trayWords = () =>
   onMac() ? 'A menu bar icon' : onLinux() ? 'A system tray icon' : 'A tray icon';
 
+/** The archive kinds "Open archives inside Trove" opens, in words. RAR only in a build that reads
+ * it (the cargo feature `rar`), the same switch `isArchiveName` uses. */
+export const archivesInsideWords = (rar: boolean = readsRar()): string =>
+  `Double-click a ${rar ? '.zip, .7z, .tar or .rar' : '.zip, .7z or .tar'} to browse it like a folder`;
+
 const FORCED_NOTE = 'On while Trove is the default file manager';
+
+/**
+ * Mac: let search into the personal folders (Desktop, Documents…) not opened in Trove yet. Allow
+ * reads each once, so macOS asks now — never in the middle of a search. Empty elsewhere.
+ */
+export const guardedAllowRows = (mac = onMac()): SettingRow[] => {
+  if (!mac) return [];
+  guardedFolders.ensureLoaded();
+  return [
+    {
+      kind: 'button' as const,
+      key: 'guarded-allow',
+      label: 'Search inside my personal folders',
+      description: 'Desktop, Documents, Downloads and the like are left out until you allow them',
+      buttonLabel: 'Allow',
+      disabled: () => guardedFolders.busy || !guardedFolders.unopened?.length,
+      note: () => {
+        const left = guardedFolders.unopened;
+        if (left === null) return null;
+        return left.length > 0 ? `Still unopened: ${guardedNames(left)}` : 'All allowed';
+      },
+      run: () => guardedFolders.allow(guardedFolders.unopened ?? []),
+    },
+  ];
+};
 
 /** The built-in Pinned folders the person has unpinned, as "Show" rows. */
 const hiddenFolderRows = (): SettingRow[] =>
@@ -116,6 +168,42 @@ const hiddenFolderRows = (): SettingRow[] =>
     buttonLabel: 'Show',
     run: () => settings.toggleKnownFolder(key),
   }));
+
+/**
+ * One toggle per app `detect_common_commands` found: on means it is on the person's context-menu
+ * list. ⛔ Reading only: the section never scans or adds by itself (`customize.detected` is
+ * filled by the Customize dialog or the Scan button below), and the toggle is the only write.
+ */
+const detectedAppRows = (): SettingRow[] => [
+  {
+    kind: 'button' as const,
+    key: 'scan-apps',
+    label: 'Look for apps',
+    description: 'Check this computer for editors and tools to offer in the right-click menu',
+    buttonLabel: 'Scan',
+    disabled: () => customize.detecting,
+    note: () =>
+      customize.detecting
+        ? 'Looking…'
+        : customize.detected === null
+          ? 'Not scanned yet'
+          : `${customize.detected.length} found`,
+    run: () => customize.detect(),
+  },
+  ...(customize.detected ?? []).map((found) => ({
+    kind: 'toggle' as const,
+    key: `app-${found.id}`,
+    label: found.label,
+    description: 'Adds it to the right-click menu',
+    note: () =>
+      customize.isHandTyped(found)
+        ? 'You added this one yourself - remove it in Customize'
+        : evidenceFor(found),
+    disabled: () => customize.isHandTyped(found),
+    get: () => customize.has(found),
+    set: (on: boolean) => (on ? customize.addDetected(found) : customize.removeDetected(found)),
+  })),
+];
 
 const sidebarKeyLabel = (key: SidebarKey): string =>
   ({
@@ -327,6 +415,32 @@ const indexRows = (): SettingRow[] => {
   ];
 };
 
+/** The hint a chord prints on this host ("⇧⌘N" on a Mac). */
+const chordHint = (chord: string | null): string =>
+  chord === null ? 'None' : keyLabel(chord, hostStyle() === 'mac');
+
+/** Plan 08 A4: one Settings ▸ Keyboard row per rebindable action. */
+const shortcutRow = (id: string): SettingRow => ({
+  kind: 'shortcut',
+  key: `shortcut-${id}`,
+  label: actionLabel(id),
+  get: () => actionHint(id) ?? 'None',
+  overridden: () => isOverridden(id),
+  note: () => (isOverridden(id) ? `Default: ${chordHint(defaultChord(id))}` : null),
+  set: (recorded) => rebind(id, recorded),
+  reset: () => resetChord(id),
+});
+
+const resetAllShortcutsRow: SettingRow = {
+  kind: 'button',
+  key: 'shortcuts-reset-all',
+  label: 'Reset all shortcuts',
+  description: 'Every action goes back to its built-in key',
+  buttonLabel: 'Reset all',
+  disabled: () => Object.keys(settings.shortcutOverrides).length === 0,
+  run: () => resetAllChords(),
+};
+
 export const settingsSections: SettingsSection[] = [
   {
     key: 'general',
@@ -368,7 +482,7 @@ export const settingsSections: SettingsSection[] = [
         kind: 'toggle',
         key: 'archives-open-inside',
         label: 'Open archives inside Trove',
-        description: 'Double-click a .zip, .7z or .tar to browse it like a folder',
+        description: archivesInsideWords(),
         get: () => settings.archivesOpenInside,
         set: (on) => (settings.archivesOpenInside = on),
       },
@@ -403,6 +517,7 @@ export const settingsSections: SettingsSection[] = [
         get: () => settings.folderSizes,
         set: (key) => (settings.folderSizes = toFolderSizesChoice(key)),
       },
+      ...guardedAllowRows(),
     ],
   },
   {
@@ -531,8 +646,8 @@ export const settingsSections: SettingsSection[] = [
       {
         kind: 'radio',
         key: 'default-view',
-        label: 'View',
-        description: 'How folders list their items',
+        label: 'Default view for new folders',
+        description: 'Folders you have not changed. A folder you change keeps its own view',
         options: explorerViewOrder.map((s, i) => ({ key: viewStepKey(i), label: stepLabel(s) })),
         get: () => {
           const i = explorerViewOrder.findIndex((s) => isStep(s, settings));
@@ -545,7 +660,45 @@ export const settingsSections: SettingsSection[] = [
           if (step.view === 'grid') settings.iconSize = step.iconSize;
         },
       },
+      // Explorer's View ▸ Show toggles (plan 06 6.3); hidden items stays under General
+      {
+        kind: 'toggle',
+        key: 'show-extensions',
+        label: 'File name extensions',
+        description: 'Off shows report instead of report.pdf. Folder names stay whole',
+        get: () => settings.showExtensions,
+        set: (on) => (settings.showExtensions = on),
+      },
+      {
+        kind: 'toggle',
+        key: 'compact-view',
+        label: 'Compact view',
+        description: 'Shorter rows in Details, so more of a folder fits',
+        get: () => settings.compactView,
+        set: (on) => (settings.compactView = on),
+      },
+      {
+        kind: 'toggle',
+        key: 'item-checkboxes',
+        label: 'Item check boxes',
+        description: 'A box before each name: click it to add or remove that item, no Ctrl needed',
+        get: () => settings.itemCheckboxes,
+        set: (on) => (settings.itemCheckboxes = on),
+      },
+      {
+        kind: 'toggle',
+        key: 'nav-pane',
+        label: 'Navigation pane',
+        description: 'The sidebar of places and drives. Off gives its width to the files',
+        get: () => settings.navPane,
+        set: (on) => (settings.navPane = on),
+      },
     ],
+  },
+  {
+    key: 'keyboard',
+    label: 'Keyboard',
+    rows: () => [...keyboardActions().map(shortcutRow), resetAllShortcutsRow],
   },
   {
     key: 'quick-access',
@@ -591,6 +744,11 @@ export const settingsSections: SettingsSection[] = [
         },
       ]),
     ],
+  },
+  {
+    key: 'apps',
+    label: 'Apps',
+    rows: detectedAppRows,
   },
   {
     key: 'search-index',

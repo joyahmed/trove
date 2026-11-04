@@ -91,9 +91,14 @@ class PaletteState {
    * a panel in an explorer window, where a resize would only size the hidden Spotlight window.
    */
   #sizesWindow = true;
+  /** The preview pane is switched on (settings.palettePreview); `setPreview` keeps it current. */
+  #preview = $state(false);
 
   /** The height the window needs for exactly what is on screen: input + headers + rows, capped. */
   get fitHeight() {
+    // the preview pane needs room for a picture whatever the row count: a file row pins the
+    // window to its full height while the pane is on, so arrowing never resizes it
+    if (this.#preview && this.results.some((r) => r.previewPath)) return MAX_HEIGHT;
     const headers = this.groups.filter((g) => g.label !== '').length;
     return Math.min(
       MAX_HEIGHT,
@@ -115,6 +120,14 @@ class PaletteState {
   configure(sources: PaletteSource[], { sizesWindow = true }: { sizesWindow?: boolean } = {}) {
     this.#sources = sources;
     this.#sizesWindow = sizesWindow;
+  }
+
+  /** The preview pane was switched on or off: the window may need its full height, or not. */
+  setPreview(on: boolean) {
+    if (this.#preview === on) return;
+    this.#preview = on;
+    if (on) this.#grow();
+    else if (!this.busy) this.#settle();
   }
 
   /** The palette window is showing this state: make the OS window the size we think it is. */

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { keyLabel } from '$lib/utils/key-label';
+  import { actionHint } from '$lib/data/action-chords';
   import { useTabStrip } from '$lib/hooks/use-tab-strip.svelte';
   import Glyph from '$lib/components/ui/Glyph.svelte';
   import FolderIcon from '$lib/components/ui/FolderIcon.svelte';
@@ -74,7 +74,7 @@
   <button
     type="button"
     class="rounded-control hover:bg-subtle-hover mx-1.5 grid size-8 shrink-0 place-items-center self-center"
-    title={`New tab (${keyLabel('Ctrl+T')})`}
+    title={`New tab (${actionHint('new-tab') ?? ''})`}
     aria-label="New tab"
     onclick={strip.open}
   >

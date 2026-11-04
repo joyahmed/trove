@@ -1,13 +1,13 @@
 <!-- Explorer's search box: filters as you type, Enter searches the folder and its subfolders —
      Ctrl+F / Ctrl+E land here, as in Explorer. The chip at its end opens Find anything (the
-     palette, in this window), which Ctrl+K / ⌘K opens too. -->
+     palette, in this window), which Ctrl+K / ⌘K opens too. The palette itself is mounted by Shell,
+     not here: a narrow window takes this box off the toolbar and ⌘K must still open it. -->
 <script lang="ts">
   import { useSearchBox } from '$lib/hooks/use-search-box.svelte';
   import { findAnything } from '$lib/hooks/use-palette.svelte';
   import { findAnythingHint } from '$lib/data/shortcuts';
   import { onMac } from '$lib/utils/platform';
   import Glyph from '$lib/components/ui/Glyph.svelte';
-  import FindAnything from '$lib/components/palette/FindAnything.svelte';
 
   const box = useSearchBox();
   const hint = findAnythingHint(onMac());
@@ -54,4 +54,3 @@
     {hint}
   </button>
 </div>
-<FindAnything />

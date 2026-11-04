@@ -145,6 +145,7 @@ fn listing_of(archive: &str, inner: &str, rows: &[&index::IndexEntry]) -> DirLis
                 icon_key,
                 type_name,
                 is_link: false,
+                cloud_state: None,
             }
         })
         .collect();

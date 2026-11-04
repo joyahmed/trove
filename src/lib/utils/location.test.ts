@@ -634,3 +634,24 @@ describe('recentLocations: the address bar ▾ list', () => {
     expect(recentLocations(many, a, [], 3)).toHaveLength(3);
   });
 });
+
+describe('a network share in locations', () => {
+  const win = (text: string) => text.replaceAll('/', String.fromCharCode(92));
+  const SHARE = win('//nas/media');
+
+  it('crumbs server › share › folders, with distinct keys', () => {
+    const crumbs = crumbsOfLocation(pathLocation(win('//nas/media/a/b')));
+    expect(crumbs.map((c) => c.label)).toEqual(['nas', 'media', 'a', 'b']);
+    expect(crumbs[0].location).toEqual(pathLocation(SHARE));
+    expect(new Set(crumbs.map((c) => c.key)).size).toBe(4);
+  });
+
+  it('goes Up to the share, and from the share to This PC like a drive root', () => {
+    expect(parentLocation(pathLocation(win('//nas/media/a')))).toEqual(pathLocation(SHARE));
+    expect(parentLocation(pathLocation(SHARE))).toEqual(THIS_PC);
+  });
+
+  it('titles the share root by its share', () => {
+    expect(locationLabel(pathLocation(SHARE))).toBe('media');
+  });
+});

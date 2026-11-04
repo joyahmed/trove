@@ -13,6 +13,7 @@ import { folderSpace } from '$lib/api/transfer';
 import type { FolderSpace } from '$lib/types/shell';
 import { onWindows } from '$lib/utils/platform';
 import { logError } from '$lib/api/log';
+import { updater } from '$lib/state/updater.svelte';
 
 export const useStatusBar = () => {
   const inList = $derived(tabs.active.location.kind === 'path' || search.active);
@@ -34,7 +35,19 @@ export const useStatusBar = () => {
       })
       .catch((e: unknown) => logError('statusBar.folderSpace', e));
   });
+  // the update line (plan 22.5.3): asks Rust only in a build that updates itself
+  updater.start();
   return {
+    /** the waiting update's version, or null: the line is hidden */
+    get updateVersion(): string | null {
+      return updater.version;
+    },
+    get updateRestarting(): boolean {
+      return updater.restarting;
+    },
+    restartToUpdate() {
+      void updater.restart();
+    },
     /** the Details / Large icons buttons; which one is on follows the folder's own view */
     get viewButtons() {
       return viewToggles.map((t) => ({ ...t, pressed: tabs.active.view === t.key }));

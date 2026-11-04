@@ -1,7 +1,9 @@
 // The sidebar is these sections rendered once. Items with a `location` navigate (or `run`
 // when the click needs more than a navigate); a node with `children` expands on its chevron.
-// Network is not listed until UNC browsing exists (Phase 5) — mapped drives already show as
-// drive letters under Drives, whose header opens This PC.
+// Network lists the mapped letters and the shares visited lately (plan 05 5.3b) — never a
+// browse of the neighbourhood; a place that missed its deadline reads greyed (plan 08 D3).
+import { syncStatuses, type SyncStatusInfo } from '$lib/data/cloud-states';
+import type { SyncStatus } from '$lib/types/fs';
 import { binName, onWindows } from '$lib/utils/platform';
 import { isWslPath, samePath } from '$lib/utils/path';
 import type { GlyphName } from '$lib/data/glyphs';
@@ -10,7 +12,9 @@ import { PLACE_ICONS } from '$lib/data/place-icons';
 import { fmtSpace } from '$lib/utils/format';
 import { places } from '$lib/state/places.svelte';
 import { settings, type SidebarKey } from '$lib/state/settings.svelte';
+import { network } from '$lib/state/network.svelte';
 import { wsl } from '$lib/state/wsl.svelte';
+import { isRemoteShare, shareParts, shareRootOf } from '$lib/utils/network';
 import type { Location } from '$lib/types/location';
 import type { KnownFolderKey } from '$lib/types/shell';
 import {
@@ -41,8 +45,14 @@ export interface SidebarItem {
   /** a drive's fill (0..1), its "N GB free of M GB" and how full it reads; absent when the OS
    * would not say */
   usage?: DriveUsage;
+  /** a state glyph after the label (OneDrive's sync state); its words join the tooltip */
+  status?: SyncStatusInfo;
   /** shows a chevron; with `children` it expands, without (OneDrive unset) it is decoration */
   expandable?: boolean;
+  /** greyed: the place missed its deadline lately (plan 08 D3); still clickable to try again */
+  unreachable?: boolean;
+  /** a green dot after the label: this WSL distro is running now (plan 08 C) */
+  running?: boolean;
   /** items shown indented below when the node is expanded */
   children?: () => SidebarItem[];
 }
@@ -93,7 +103,45 @@ const driveItems = (): SidebarItem[] =>
     color: '#9aa4b2',
     location: pathLocation(d.path),
     usage: driveUsage(d.totalBytes, d.freeBytes),
+    unreachable: network.isMissed(d.path),
   }));
+
+/** How many visited shares the Network group keeps; the full history is the palette's. */
+export const MAX_NETWORK_SHARES = 6;
+
+/**
+ * The Network group: each letter mapped to a share, then the share roots of folders visited
+ * lately (WSL is its own Linux group), most recent first, one row per share.
+ */
+export const networkItems = (): SidebarItem[] => {
+  const letters = network.mapped.map((letter) => ({
+    key: `net:${letter}`,
+    ...driveName(places.drives.find((d) => samePath(d.path, letter))?.label ?? '', letter),
+    glyph: 'drive' as GlyphName,
+    color: '#9aa4b2',
+    location: pathLocation(letter),
+    unreachable: network.isMissed(letter),
+  }));
+  const seen = new Set<string>();
+  const shares: SidebarItem[] = [];
+  for (const path of settings.recentFolders) {
+    const root = shareRootOf(path);
+    if (!root || !isRemoteShare(root) || seen.has(root.toLowerCase())) continue;
+    seen.add(root.toLowerCase());
+    const parts = shareParts(root);
+    if (!parts) continue;
+    shares.push({
+      key: `net:${root}`,
+      label: parts.share,
+      tag: parts.server,
+      ...folderIcon,
+      location: pathLocation(root),
+      unreachable: network.isMissed(root),
+    });
+    if (shares.length === MAX_NETWORK_SHARES) break;
+  }
+  return [...letters, ...shares];
+};
 
 /** Red at 90% used is the same line as the Places drive tiles (place-tiles.ts) and Explorer's own
  * This PC bar, so one drive never reads full in one place and fine in the other. Amber at 80% is
@@ -137,8 +185,12 @@ export const pinName = (path: string): { label: string; tag?: string } => {
 };
 
 /** OneDrive is a Windows concept: its row is hidden off Windows unless a root really is found. */
-export const oneDriveRows = (root: string | null, windows: boolean): SidebarItem[] => {
-  if (root) return [oneDriveItem(root)];
+export const oneDriveRows = (
+  root: string | null,
+  windows: boolean,
+  sync: SyncStatus | null = null,
+): SidebarItem[] => {
+  if (root) return [{ ...oneDriveItem(root), ...(sync ? { status: syncStatuses[sync] } : {}) }];
   return windows ? [oneDriveItem(null)] : [];
 };
 
@@ -213,7 +265,7 @@ export const sidebarSections: SidebarSection[] = [
           ...PLACE_ICONS.applications,
           location: APPLICATIONS,
         },
-        ...oneDriveRows(places.oneDriveRoot, onWindows()),
+        ...oneDriveRows(places.oneDriveRoot, onWindows(), places.oneDriveSync),
         {
           key: 'recycle-bin',
           label: binName(),
@@ -221,6 +273,11 @@ export const sidebarSections: SidebarSection[] = [
           location: RECYCLE_BIN,
         },
       ]),
+  },
+  {
+    key: 'network',
+    title: 'Network',
+    items: networkItems,
   },
   {
     // every installed distro, as Explorer's Linux node lists them; a click lands on its home
@@ -234,6 +291,7 @@ export const sidebarSections: SidebarSection[] = [
         color: '#f5b400',
         location: pathLocation(`\\\\wsl.localhost\\${d.name}\\`),
         run: () => wsl.open(d),
+        running: wsl.isRunning(d.name),
       })),
   },
 ];

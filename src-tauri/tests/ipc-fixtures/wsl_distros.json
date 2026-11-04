@@ -1,0 +1,14 @@
+[
+  [
+    {
+      "isDefault": true,
+      "name": "Ubuntu",
+      "uid": 1000
+    },
+    {
+      "isDefault": false,
+      "name": "Debian",
+      "uid": 1000
+    }
+  ]
+]

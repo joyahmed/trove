@@ -14,6 +14,7 @@ import {
   FOOTER_HEIGHT,
   HEADER_HEIGHT,
   LIST_CHROME,
+  MAX_HEIGHT,
   palette,
   QUERY_DEBOUNCE_MS,
   ROW_HEIGHT,
@@ -511,6 +512,32 @@ describe('palette', () => {
       palette.hover(1, 300, 160);
       expect(palette.current?.title).toBe('gnome-calculator');
       expect(palette.selected).toBe(1);
+    });
+  });
+
+  describe('the preview pane (plan 04 4.4)', () => {
+    afterEach(() => palette.setPreview(false));
+
+    it('pins the window to its full height while it is on and a row can be previewed', async () => {
+      const file = { ...result('note.md', 'files'), previewPath: 'C:\\note.md' };
+      palette.configure([source('files', [file])]);
+      palette.setQuery('note');
+      await settled();
+      const short = COLLAPSED_HEIGHT + LIST_CHROME + FOOTER_HEIGHT + HEADER_HEIGHT + ROW_HEIGHT;
+      expect(palette.fitHeight).toBe(short);
+      palette.setPreview(true);
+      expect(palette.fitHeight).toBe(MAX_HEIGHT);
+      expect(palette.height).toBe(MAX_HEIGHT);
+      palette.setPreview(false);
+      expect(palette.height).toBe(short);
+    });
+
+    it('leaves the height alone when no row is a file or folder', async () => {
+      palette.setPreview(true);
+      palette.configure([source('actions', [result('New tab', 'actions')])]);
+      palette.setQuery('tab');
+      await settled();
+      expect(palette.fitHeight).toBeLessThan(MAX_HEIGHT);
     });
   });
 });

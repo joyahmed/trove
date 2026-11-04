@@ -1,0 +1,44 @@
+[
+  [
+    {
+      "lockers": [
+        {
+          "app": "Word",
+          "canEnd": true,
+          "exe": "C:\\Office\\WINWORD.EXE",
+          "noEnd": null,
+          "pid": 4242
+        },
+        {
+          "app": "Trove",
+          "canEnd": false,
+          "exe": "trove.exe",
+          "noEnd": "trove",
+          "pid": 1
+        },
+        {
+          "app": "Terminal",
+          "canEnd": false,
+          "exe": "wt.exe",
+          "noEnd": "terminal",
+          "pid": 2
+        },
+        {
+          "app": "System",
+          "canEnd": false,
+          "exe": "svc.exe",
+          "noEnd": "windows",
+          "pid": 3
+        },
+        {
+          "app": "Other",
+          "canEnd": false,
+          "exe": "x.exe",
+          "noEnd": "otherSession",
+          "pid": 4
+        }
+      ],
+      "path": "C:\\a.docx"
+    }
+  ]
+]

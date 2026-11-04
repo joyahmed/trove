@@ -38,8 +38,10 @@ export const onSpotlightNavigate = (cb: (path: string) => void) =>
 export const onSpotlightReveal = (cb: (path: string) => void) =>
   listen<{ path: string }>('spotlight:reveal', (e) => cb(e.payload.path));
 /** The palette asked the explorer to search every drive for `text` (its "Search everywhere"). */
-export const onSpotlightSearch = (cb: (text: string) => void) =>
-  listen<{ text: string }>('spotlight:search', (e) => cb(e.payload.text));
+export const onSpotlightSearch = (cb: (text: string, here: boolean) => void) =>
+  listen<{ text: string; here?: boolean }>('spotlight:search', (e) =>
+    cb(e.payload.text, e.payload.here === true),
+  );
 /**
  * An external open the palette attempted and could not do — no default browser association,
  * most plausibly. The palette window has its own JS realm, so it cannot reach the explorer's
@@ -61,6 +63,11 @@ export const spotlightApps = (refresh = false) => invoke<AppEntry[]>('spotlight_
  * `openPath` cannot start it; only `ShellExecuteW` can, which is what this command wraps.
  */
 export const launchApp = (aumid: string) => invoke<void>('launch_app', { aumid });
+/**
+ * The file hits, and (Mac) the privacy-guarded folders the search left out because the person
+ * has not opened them in Trove yet — Desktop, Documents… in that order (`core::privacy_folders`).
+ */
+export type FoundFiles = { entries: FileEntry[]; skippedGuarded: string[] };
 /** A bounded name search: ≤ maxResults, three levels deep, within budgetMs. */
 export const spotlightFiles = (
   text: string,
@@ -68,7 +75,7 @@ export const spotlightFiles = (
   maxResults = 20,
   budgetMs = 300,
   maxDepth = 3,
-) => invoke<FileEntry[]>('spotlight_files', { text, roots, maxResults, budgetMs, maxDepth });
+) => invoke<FoundFiles>('spotlight_files', { text, roots, maxResults, budgetMs, maxDepth });
 /** A root still on its first index walk: `label` is `home` or a drive (`D:`), `seen` names so far. */
 export type IndexFilling = { label: string; seen: number };
 /**
@@ -84,6 +91,8 @@ export type IndexAnswer = {
   filling?: IndexFilling[];
   /** Roots served from their saved file and not caught up yet (absent before plan 21C.3). */
   stale?: string[];
+  /** Mac: the unopened guarded folders under `roots`, whose names the index does not hold. */
+  skippedGuarded?: string[];
 };
 export const indexSearch = (text: string, maxResults = 20) =>
   invoke<IndexAnswer>('index_search', { text, maxResults });
@@ -97,7 +106,7 @@ export const indexWsl = (distros: string[]) => invoke<void>('index_wsl', { distr
 export const emitAction = (key: string) => emit('spotlight:action', { key });
 export const emitNavigate = (path: string) => emit('spotlight:navigate', { path });
 export const emitReveal = (path: string) => emit('spotlight:reveal', { path });
-export const emitSearch = (text: string) => emit('spotlight:search', { text });
+export const emitSearch = (text: string, here = false) => emit('spotlight:search', { text, here });
 export const emitOpenFailed = (message: string) => emit('spotlight:open-failed', { message });
 
 /**

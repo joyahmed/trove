@@ -120,6 +120,8 @@ pub fn parse_icon_request(path: &str, query: Option<&str>) -> Option<(String, u3
     let key = match kind {
         "ext" => format!("ext/{}", arg.to_lowercase()),
         "file" | "thumb" | "big" | "app" if !arg.is_empty() => format!("{kind}/{arg}"),
+        // a shell menu item's bitmap, already a PNG in memory (core/shell_menu.rs)
+        "menu" if !arg.is_empty() => format!("menu/{arg}"),
         _ => return None,
     };
     let size = query
@@ -396,6 +398,9 @@ pub fn icon_svg(_key: &str, _size: u32) -> Option<Vec<u8>> {
 /// could not make (a file still open for writing), and any `thumb/` of an empty or still-fresh
 /// file (`SETTLE_MS`), whose picture may be of half a file (B.5.5).
 pub fn icon_body(cache_dir: &Path, key: &str, size: u32) -> Option<(IconBody, bool)> {
+    if key.starts_with("menu/") {
+        return super::shell_menu::icon(key).map(|png| (IconBody::Png(png), true));
+    }
     if let Some(svg) = icon_svg(key, size) {
         return Some((IconBody::Svg(svg), true));
     }
@@ -713,6 +718,15 @@ pub enum IconLane {
     /// `thumb/`, `big/`: a full `GetImage` per file. Slow lane, newest first, and the oldest
     /// queued are answered "busy" when a fast scroll piles up more than the screen can show.
     Image,
+}
+
+/// The file a `file/`, `thumb/` or `big/` key draws, for the deadline (`workers::guarded`):
+/// those read the file itself, so on a share they wait for the server. `None` for the
+/// file-less keys (`ext/`, `app/`).
+pub fn key_path(key: &str) -> Option<&str> {
+    ["file/", "thumb/", "big/"]
+        .iter()
+        .find_map(|prefix| key.strip_prefix(prefix))
 }
 
 pub fn lane_of(path: &str) -> IconLane {
@@ -1897,6 +1911,12 @@ mod tests {
         assert_eq!(lane_of("/thumb/C%3A%5Ca.jpg"), IconLane::Image);
         assert_eq!(lane_of("/big/C%3A%5Cdir"), IconLane::Image);
         assert_eq!(lane_of("/nonsense"), IconLane::Quick);
+        // the deadline asks only the keys that read a file
+        assert_eq!(key_path(r"file/\\nas\a.exe"), Some(r"\\nas\a.exe"));
+        assert_eq!(key_path(r"thumb/Z:\a.jpg"), Some(r"Z:\a.jpg"));
+        assert_eq!(key_path(r"big/C:\dir"), Some(r"C:\dir"));
+        assert_eq!(key_path("ext/txt"), None);
+        assert_eq!(key_path("app/X!App"), None);
     }
 
     /// The HTTP route has to admit the new kind, or the webview asks for a URL that 404s.

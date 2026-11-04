@@ -1,0 +1,26 @@
+[
+  null,
+  {
+    "windows": [
+      {
+        "active": 0,
+        "bounds": {
+          "h": 800,
+          "maximized": true,
+          "w": 1280,
+          "x": -8,
+          "y": 0
+        },
+        "label": "main",
+        "tabs": [
+          "/home/alex"
+        ]
+      },
+      {
+        "active": 0,
+        "label": "w2",
+        "tabs": []
+      }
+    ]
+  }
+]

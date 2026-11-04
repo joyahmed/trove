@@ -19,6 +19,22 @@ export const useListStatus = () => {
   );
 
   return {
+    /** the server whose share is slow to answer ("Still reaching <server>…"), or null */
+    get reaching() {
+      return tabs.active.slowServer;
+    },
+    /** give up on that move; the tab stays where it was */
+    cancel: () => tabs.active.cancelNavigation(),
+    /** the error is a place that did not answer in time: offer to ask again */
+    get unreachable() {
+      return tabs.active.unreachable;
+    },
+    retry: () => tabs.active.retry(),
+    /** the share wants a user name and password: offer the OS sign-in box once (5.3d) */
+    get canSignIn() {
+      return tabs.active.signInCode !== null;
+    },
+    signIn: () => void tabs.active.signIn(),
     get error() {
       return tabs.active.error;
     },

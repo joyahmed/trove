@@ -4,9 +4,12 @@ vi.mock('$lib/api/shell-verbs', () => ({
   shellVerbs: vi.fn(async () => []),
   runShellVerb: vi.fn(async () => {}),
   runCustomCommand: vi.fn(async () => {}),
+  shellMenu: vi.fn(),
+  shellMenuInvoke: vi.fn(async () => {}),
 }));
 
-import { runCustomCommand } from '$lib/api/shell-verbs';
+import { runCustomCommand, shellMenu, shellMenuInvoke } from '$lib/api/shell-verbs';
+import type { MenuItem } from '$lib/hooks/use-menu.svelte';
 import { notices } from '$lib/state/notices.svelte';
 import { settings } from '$lib/state/settings.svelte';
 import { shellVerbs } from '$lib/state/shell-verbs.svelte';
@@ -125,5 +128,47 @@ describe('runCommand: a command that would not start says so on screen', () => {
     expect(notices.list.map((n) => [n.kind, n.message])).toEqual([
       ['error', 'code did not start: code: The system cannot find the file'],
     ]);
+  });
+});
+
+describe('menuRows: Windows items arrive in time, late, or not at all', () => {
+  const target = { paths: ['C:\\docs\\a.txt'], background: false, dir: 'C:\\docs' };
+  const row = (id: number, label: string) => ({
+    id,
+    label,
+    verb: null,
+    enabled: true,
+    separator: false,
+    children: [],
+    iconKey: null,
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('an in-time answer becomes rows whose click invokes the live menu by token', async () => {
+    vi.mocked(shellMenu).mockResolvedValueOnce({ token: 5, items: [row(8, '7-Zip')] });
+    const rows = await shellVerbs.menuRows(target, false, []);
+    const item = rows.find((r): r is Extract<MenuItem, { kind: 'item' }> => r.kind === 'item');
+    expect(item?.label).toBe('7-Zip');
+    item?.run();
+    await Promise.resolve();
+    expect(shellMenuInvoke).toHaveBeenCalledWith(5, 8, 'C:\\docs');
+  });
+
+  it('no answer past the deadline leaves the one late row', async () => {
+    vi.useFakeTimers();
+    vi.mocked(shellMenu).mockReturnValueOnce(new Promise(() => {}));
+    const pending = shellVerbs.menuRows(target, false, []);
+    await vi.advanceTimersByTimeAsync(401);
+    const rows = await pending;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].kind === 'item' && rows[0].label).toBe('Windows items took too long');
+  });
+
+  it('a shell that refuses leaves nothing behind', async () => {
+    vi.mocked(shellMenu).mockRejectedValueOnce('not a file system folder');
+    expect(await shellVerbs.menuRows(target, false, [])).toEqual([]);
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "trove",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Trove — a fast file explorer for Windows, macOS and Linux, built with Tauri 2 + Svelte 5",
   "type": "module",
   "scripts": {

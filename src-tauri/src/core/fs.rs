@@ -34,6 +34,64 @@ pub struct FileEntry {
     /// .lnk / .url shortcut (named, not followed). The list draws Explorer's arrow on it. Sent only when true: a listing is 100k entries.
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub is_link: bool,
+    /// Where a cloud-synced file's bytes are (OneDrive and any other Cloud Files provider).
+    /// Sent only for a file the provider marked: a plain folder has none of these attributes.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cloud_state: Option<CloudState>,
+}
+
+/// Explorer's Status column for a cloud placeholder, read off the file attributes alone, so the
+/// listing never asks the provider (asking can hydrate the file).
+#[cfg_attr(not(windows), allow(dead_code))] // only Windows reads cloud attributes; tested everywhere
+#[derive(Debug, Clone, Copy, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum CloudState {
+    /// Only a placeholder is on disk; opening it downloads the bytes. Explorer's cloud icon.
+    Online,
+    /// "Always keep on this device": the provider keeps the bytes and never frees them.
+    Pinned,
+    /// The bytes are here, and "Free up space" may turn the file back into a placeholder.
+    Local,
+}
+
+/// `FILE_ATTRIBUTE_*` bits a Cloud Files provider sets (winnt.h).
+#[cfg_attr(not(windows), allow(dead_code))] // only Windows reads cloud attributes; tested everywhere
+pub(crate) const FILE_ATTRIBUTE_OFFLINE: u32 = 0x1000;
+#[cfg_attr(not(windows), allow(dead_code))] // only Windows reads cloud attributes; tested everywhere
+pub(crate) const FILE_ATTRIBUTE_RECALL_ON_OPEN: u32 = 0x4_0000;
+#[cfg_attr(not(windows), allow(dead_code))] // only Windows reads cloud attributes; tested everywhere
+pub(crate) const FILE_ATTRIBUTE_PINNED: u32 = 0x8_0000;
+#[cfg_attr(not(windows), allow(dead_code))] // only Windows reads cloud attributes; tested everywhere
+pub(crate) const FILE_ATTRIBUTE_UNPINNED: u32 = 0x10_0000;
+#[cfg_attr(not(windows), allow(dead_code))] // only Windows reads cloud attributes; tested everywhere
+pub(crate) const FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS: u32 = 0x40_0000;
+
+/// The cloud state an attribute word says. ⚠️ Pinned wins over the recall bits: a file just
+/// pinned keeps `RECALL_ON_DATA_ACCESS` until its download finishes, and Explorer already shows
+/// it as "always available". A word with none of the provider's bits is not a cloud file.
+#[cfg_attr(not(windows), allow(dead_code))] // only Windows reads cloud attributes; tested everywhere
+pub(crate) fn cloud_state_of(attrs: u32) -> Option<CloudState> {
+    let recall = FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS | FILE_ATTRIBUTE_RECALL_ON_OPEN;
+    if attrs & FILE_ATTRIBUTE_PINNED != 0 {
+        Some(CloudState::Pinned)
+    } else if attrs & (recall | FILE_ATTRIBUTE_OFFLINE) != 0 {
+        Some(CloudState::Online)
+    } else if attrs & FILE_ATTRIBUTE_UNPINNED != 0 {
+        Some(CloudState::Local)
+    } else {
+        None
+    }
+}
+
+#[cfg(windows)]
+fn cloud_state(meta: Option<&Metadata>) -> Option<CloudState> {
+    use std::os::windows::fs::MetadataExt;
+    cloud_state_of(meta?.file_attributes())
+}
+
+#[cfg(not(windows))]
+fn cloud_state(_meta: Option<&Metadata>) -> Option<CloudState> {
+    None
 }
 
 #[derive(Debug, Serialize)]
@@ -131,11 +189,14 @@ pub(crate) fn entry_from(
     let is_symlink = link_meta
         .as_ref()
         .is_some_and(|m| m.file_type().is_symlink());
-    let meta = if is_symlink && !cfg!(windows) {
-        std::fs::metadata(&path).ok().or_else(|| link_meta.clone())
-    } else {
-        link_meta.clone()
-    };
+    // ⛔ a Mac link into an automount, a share or an unopened guarded folder is not followed:
+    // that follow is the prompt (`privacy_folders::link_is_fenced`)
+    let meta =
+        if is_symlink && !cfg!(windows) && !crate::core::privacy_folders::link_is_fenced(&path) {
+            std::fs::metadata(&path).ok().or_else(|| link_meta.clone())
+        } else {
+            link_meta.clone()
+        };
     let is_dir = meta.as_ref().is_some_and(Metadata::is_dir)
         || link_meta.as_ref().is_some_and(ops::is_dir_link);
     let is_alias = !is_dir && is_finder_alias(&path, meta.as_ref());
@@ -150,11 +211,18 @@ pub(crate) fn entry_from(
     let path_str = path.to_string_lossy().into_owned();
     // A folder with a desktop.ini carries its own icon (IconResource); one `exists` per
     // DIRECTORY entry, never per file, so a 100k-file listing costs a handful of checks.
-    let icon_key = if is_dir && !is_symlink && path.join("desktop.ini").exists() {
-        format!("file/{path_str}")
-    } else {
-        icons::icon_key(is_dir, ext.as_deref(), &path_str)
-    };
+    //
+    // ⛔ Not on a Mac: that `exists` is a lookup INSIDE the folder, and inside an unopened
+    // `~/Desktop`, `~/Documents` or `~/Downloads` it is the privacy prompt. Every search of
+    // This Mac kept the guarded folder's own row and so asked for each of the three, with
+    // the walk itself fenced (Mac test, 2026-11-04). A Mac has no desktop.ini icons anyway.
+    let icon_key =
+        if is_dir && !is_symlink && !cfg!(target_os = "macos") && path.join("desktop.ini").exists()
+        {
+            format!("file/{path_str}")
+        } else {
+            icons::icon_key(is_dir, ext.as_deref(), &path_str)
+        };
     let type_name = if is_dir {
         dir_type_name(&name).to_string()
     } else if is_alias && !is_symlink {
@@ -181,6 +249,7 @@ pub(crate) fn entry_from(
         is_dir,
         ext,
         is_link,
+        cloud_state: cloud_state(link_meta.as_ref()),
     }
 }
 
@@ -273,6 +342,47 @@ fn default_order(e: &FileEntry) -> (bool, String) {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn cloud_state_reads_the_provider_bits() {
+        // a plain file, and a hidden+archive one, carry no provider bit
+        assert_eq!(cloud_state_of(0x20), None);
+        assert_eq!(cloud_state_of(0x22), None);
+        // OneDrive's online-only placeholder: archive + recall on data access (+ offline)
+        assert_eq!(
+            cloud_state_of(0x20 | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS),
+            Some(CloudState::Online)
+        );
+        assert_eq!(
+            cloud_state_of(FILE_ATTRIBUTE_OFFLINE),
+            Some(CloudState::Online)
+        );
+        assert_eq!(
+            cloud_state_of(FILE_ATTRIBUTE_RECALL_ON_OPEN | 0x10),
+            Some(CloudState::Online)
+        );
+        // downloaded, may be freed
+        assert_eq!(
+            cloud_state_of(0x20 | FILE_ATTRIBUTE_UNPINNED),
+            Some(CloudState::Local)
+        );
+        // pinned wins while its download is still under way
+        assert_eq!(
+            cloud_state_of(FILE_ATTRIBUTE_PINNED | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS),
+            Some(CloudState::Pinned)
+        );
+    }
+
+    #[test]
+    fn a_plain_listing_sends_no_cloud_state() {
+        let dir = scratch("cloud-none");
+        fs::write(dir.join("a.txt"), "x").unwrap();
+        let mut types = HashMap::new();
+        let p = dir.join("a.txt");
+        let e = entry_from(p.clone(), fs::symlink_metadata(&p).ok(), &mut types);
+        assert_eq!(e.cloud_state, None);
+        let _ = fs::remove_dir_all(&dir);
+    }
 
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("trove-test-{name}-{}", std::process::id()));
@@ -373,11 +483,17 @@ mod tests {
         let listing = read_dir(&dir).unwrap();
         let by_name = |n: &str| listing.entries.iter().find(|e| e.name == n).unwrap();
         assert_eq!(by_name("sub").icon_key, "folder");
-        assert_eq!(
-            by_name("themed").icon_key,
-            format!("file/{}", dir.join("themed").to_string_lossy()),
-            "a folder with a desktop.ini takes the per-file icon path"
-        );
+        if cfg!(target_os = "macos") {
+            // ⭐ a Mac never looks inside a folder for its row: in an unopened ~/Desktop that
+            // lookup is the privacy prompt (This Mac's "Search everywhere", 2026-11-04)
+            assert_eq!(by_name("themed").icon_key, "folder");
+        } else {
+            assert_eq!(
+                by_name("themed").icon_key,
+                format!("file/{}", dir.join("themed").to_string_lossy()),
+                "a folder with a desktop.ini takes the per-file icon path"
+            );
+        }
         assert_eq!(by_name("themed").type_name, FOLDER_TYPE);
         assert_eq!(by_name("sub").type_name, FOLDER_TYPE);
         assert_eq!(by_name("notes.txt").icon_key, "ext/txt");
@@ -531,5 +647,41 @@ mod tests {
         fs::write(dir.join("plain"), b"not a bookmark at all, just text").unwrap();
         assert!(!is_alias("plain"));
         fs::remove_dir_all(dir).unwrap();
+    }
+    /// Plan 08 F5: a folder deeper than MAX_PATH (260) lists, stats and renames. `std::fs`
+    /// adds the `\?\` prefix itself; this proves the app's own paths go through it.
+    #[test]
+    fn a_path_over_260_chars_lists_stats_and_renames() {
+        let root = scratch("long-path");
+        let mut deep = root.clone();
+        while deep.as_os_str().len() <= 300 {
+            deep.push("a-forty-character-folder-name-for-depth");
+        }
+        fs::create_dir_all(&deep).unwrap();
+        let file = deep.join("note.txt");
+        fs::write(&file, b"long").unwrap();
+        assert!(
+            file.as_os_str().len() > 260,
+            "{} chars",
+            file.as_os_str().len()
+        );
+
+        assert_eq!(path_kind(&deep), PathKind::Dir);
+        assert_eq!(path_kind(&file), PathKind::File);
+        let listing = read_dir(&deep).unwrap();
+        assert_eq!(listing.entries.len(), 1);
+        assert_eq!(listing.entries[0].name, "note.txt");
+        assert_eq!(listing.entries[0].size, 4);
+
+        let renamed = ops::rename(&file, "renamed.txt").unwrap();
+        assert!(renamed.as_os_str().len() > 260);
+        assert_eq!(path_kind(&file), PathKind::Missing);
+        assert_eq!(fs::read(&renamed).unwrap(), b"long");
+        let folder = ops::create_folder(&deep).unwrap();
+        assert_eq!(path_kind(&folder), PathKind::Dir);
+        assert_eq!(read_dir(&deep).unwrap().entries.len(), 2);
+
+        fs::remove_dir_all(&root).unwrap();
+        assert_eq!(path_kind(&root), PathKind::Missing);
     }
 }

@@ -3,7 +3,7 @@
      a folder navigates, a file opens in its app. -->
 <script lang="ts">
   import type { FileEntry } from '$lib/types/fs';
-  import { shownName } from '$lib/utils/app-bundle';
+  import { displayName } from '$lib/data/display-name';
   import { isFinderOpenKey } from '$lib/utils/key-label';
   import EntryIcon from '$lib/components/ui/EntryIcon.svelte';
 
@@ -32,5 +32,5 @@
   {oncontextmenu}
 >
   <EntryIcon {entry} size={32} box={64} thumbs={false} />
-  <span class="w-full truncate text-center text-xs">{shownName(entry)}</span>
+  <span class="w-full truncate text-center text-xs">{displayName(entry)}</span>
 </div>

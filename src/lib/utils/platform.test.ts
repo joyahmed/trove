@@ -11,6 +11,8 @@ import {
   onMac,
   onWindows,
   propertiesLabel,
+  selfUpdates,
+  readsRar,
   storeBuild,
   THIS_PC_LABELS,
   thisPcLabel,
@@ -260,5 +262,35 @@ describe('storeBuild', () => {
 
   it('is the direct build off Tauri (nothing injected)', () => {
     expect(storeBuild(undefined)).toBe(false);
+  });
+});
+
+describe('selfUpdates', () => {
+  const at = (updater?: boolean) =>
+    ({ os: 'windows', thisPcLabel: 'This PC', updater }) as Parameters<typeof selfUpdates>[0];
+
+  it('is a self-updating build only when Rust says updater: true', () => {
+    expect(selfUpdates(at(true))).toBe(true);
+    expect(selfUpdates(at(false))).toBe(false);
+    expect(selfUpdates(at(undefined))).toBe(false);
+  });
+
+  it('never updates itself off Tauri (nothing injected)', () => {
+    expect(selfUpdates(undefined)).toBe(false);
+  });
+});
+
+describe('readsRar', () => {
+  const at = (rar?: boolean) =>
+    ({ os: 'windows', thisPcLabel: 'This PC', rar }) as Parameters<typeof readsRar>[0];
+
+  it('reads RAR only when Rust says rar: true (the rar feature is built in)', () => {
+    expect(readsRar(at(true))).toBe(true);
+    expect(readsRar(at(false))).toBe(false);
+    expect(readsRar(at(undefined))).toBe(false);
+  });
+
+  it('never reads RAR off Tauri (nothing injected)', () => {
+    expect(readsRar(undefined)).toBe(false);
   });
 });

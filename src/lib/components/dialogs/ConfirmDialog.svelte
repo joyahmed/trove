@@ -18,7 +18,27 @@
     aria-labelledby="confirm-title"
   >
     <h2 id="confirm-title" class="mb-1 text-lg font-semibold">{dialog.title}</h2>
-    <p class="text-text-secondary mb-5 break-words whitespace-pre-line">{dialog.message}</p>
+    <p class="text-text-secondary break-words whitespace-pre-line {dialog.input ? 'mb-3' : 'mb-5'}">
+      {dialog.message}
+    </p>
+    {#if dialog.input}
+      <input
+        type="text"
+        autocorrect="off"
+        autocapitalize="off"
+        spellcheck="false"
+        autocomplete="off"
+        class="bg-layer border-divider rounded-control focus:border-accent h-8 w-full border px-2 outline-none {dialog.problem
+          ? 'border-critical'
+          : ''}"
+        placeholder={dialog.input.placeholder}
+        aria-label={dialog.input.placeholder}
+        aria-invalid={dialog.problem ? 'true' : undefined}
+        bind:value={dialog.text}
+        use:dialog.focusInput
+      />
+      <p class="text-critical mt-1 mb-4 min-h-4 text-xs" role="alert">{dialog.problem ?? ''}</p>
+    {/if}
     <div class="flex justify-end gap-2">
       <button
         type="button"

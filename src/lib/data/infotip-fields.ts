@@ -8,6 +8,7 @@
 // card runs that job on dwell and hands its running total in here, so Size arrives in stages
 // rather than being dropped; with no walk (a file, or a card that has not started one) the
 // second argument is null and a folder's row disappears exactly as before.
+import { cloudStateText } from '$lib/data/cloud-states';
 import { notCountedNote } from '$lib/data/details-rows';
 import type { FolderSize } from '$lib/hooks/use-infotip.svelte';
 import type { FileEntry } from '$lib/types/fs';
@@ -41,6 +42,8 @@ export const infotipFields: InfotipField[] = [
   },
   { key: 'created', label: 'Date created', value: (e) => fmtDate(e.createdMs) || null },
   { key: 'modified', label: 'Date modified', value: (e) => fmtDate(e.modifiedMs) || null },
+  // a OneDrive file says where its bytes are, in words; the badge on its icon says it in a glyph
+  { key: 'cloud', label: 'Status', value: (e) => cloudStateText(e.cloudState) },
 ];
 
 export interface InfotipRow {

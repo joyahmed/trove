@@ -1,7 +1,7 @@
 //! Archives inside Trove (plan 16): make, extract and later browse zip, 7z, tar.* and RAR
 //! without a second app. ZIP (Phase 1), tar, bare or in gz / xz / zst (Phase 2), and 7z
-//! (Phase 3) are read and written; RAR is detected here and refused with a plain
-//! "not supported yet".
+//! (Phase 3) are read and written; RAR (Phase 5) is listed and extracted, never written, and
+//! only in a build with the `rar` cargo feature (default) — without it RAR is refused in words.
 //!
 //! The rules every format follows live in this folder, not in each reader:
 //! - `safe_path`: an entry name becomes a path inside the chosen folder or is refused (zip-slip);
@@ -10,6 +10,8 @@
 
 pub mod index;
 pub mod job;
+#[cfg(feature = "rar")]
+pub mod rar_fmt;
 pub mod safe_path;
 pub mod sevenz_fmt;
 pub mod tar_fmt;
@@ -55,6 +57,8 @@ pub enum ArchiveFormat {
 }
 
 pub const NOT_AN_ARCHIVE: &str = "Not an archive Trove can open";
+/// What a build without the `rar` feature says for a RAR.
+pub const RAR_NOT_BUILT: &str = "RAR is not supported in this build of Trove";
 
 impl Format {
     /// Magic bytes first: a zip renamed to `x.7z` is still a zip, and a text file named
@@ -91,14 +95,13 @@ impl Format {
         Err(Error::new(ErrorKind::InvalidData, NOT_AN_ARCHIVE))
     }
 
-    /// ZIP, 7z and the tar family extract; RAR is known but refused in plain words.
+    /// ZIP, 7z and the tar family extract; RAR too in a build with the `rar` feature, and a
+    /// build without it (a distro that ships only OSI code) refuses RAR in plain words.
     pub fn ensure_supported(self) -> Result<()> {
         match self {
             Format::Zip | Format::SevenZ | Format::Tar(_) => Ok(()),
-            _ => Err(Error::new(
-                ErrorKind::Unsupported,
-                "This kind of archive is not supported yet",
-            )),
+            Format::Rar if cfg!(feature = "rar") => Ok(()),
+            Format::Rar => Err(Error::new(ErrorKind::Unsupported, RAR_NOT_BUILT)),
         }
     }
 }
@@ -404,7 +407,14 @@ mod tests {
         );
         assert!(Format::Tar(TarCodec::Gz).ensure_supported().is_ok());
         assert!(Format::SevenZ.ensure_supported().is_ok());
-        assert!(Format::Rar.ensure_supported().is_err());
+        assert_eq!(
+            Format::Rar.ensure_supported().is_ok(),
+            cfg!(feature = "rar")
+        );
+        if !cfg!(feature = "rar") {
+            let err = Format::Rar.ensure_supported().unwrap_err();
+            assert_eq!(err.to_string(), RAR_NOT_BUILT);
+        }
         fs::remove_dir_all(root).unwrap();
     }
 

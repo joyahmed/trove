@@ -14,14 +14,19 @@ import { confirm } from '$lib/state/confirm.svelte';
 import { customize } from '$lib/state/customize.svelte';
 import { settingsDialog } from '$lib/state/settings-dialog.svelte';
 import { transfers } from '$lib/state/transfers.svelte';
+import { undoHistory } from '$lib/state/undo-history.svelte';
 
 /**
- * True while Confirm (permanent delete), Replace or Skip Files, Customize context menu or
- * Settings is open. Find anything (the palette) is not counted: it takes focus into its own
+ * True while Confirm (permanent delete), Replace or Skip Files, Customize context menu,
+ * Settings or Undo history is open. Find anything (the palette) is not counted: it takes focus into its own
  * input, so the list never sees its keys, and its shortcut must keep toggling it.
  */
 export const modalOpen = (): boolean =>
-  confirm.pending !== null || transfers.pending !== null || customize.open || settingsDialog.open;
+  confirm.pending !== null ||
+  transfers.pending !== null ||
+  customize.open ||
+  settingsDialog.open ||
+  undoHistory.open;
 
 /** Keys the WebView acts on by itself (F5 reloads the app; the rest scroll or select the page). */
 const BROWSER_KEYS = new Set([

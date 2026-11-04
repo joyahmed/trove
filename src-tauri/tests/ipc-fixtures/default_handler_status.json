@@ -1,0 +1,18 @@
+[
+  {
+    "kind": "not-applied"
+  },
+  {
+    "kind": "applied"
+  },
+  {
+    "applied": [
+      "folder"
+    ],
+    "kind": "partially-applied"
+  },
+  {
+    "exe": "/usr/bin/other",
+    "kind": "applied-to-other"
+  }
+]

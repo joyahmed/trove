@@ -5,8 +5,10 @@
 // the 32 px glyph. Both now get the same large box an image gets.
 import type { FileEntry } from '$lib/types/fs';
 import type { PreviewKind } from '$lib/types/preview';
+import { thumbUrl } from '$lib/api/icons';
 import { isArchivePath } from '$lib/utils/archive-location';
 import { DRAWN_FILE_ICONS, extensionOf, isDecodedThumbnail } from '$lib/utils/file-icon';
+import { thumbStamp } from '$lib/utils/thumb-stamp';
 
 const SHELL_THUMB_EXTS = ['heic', 'heif', 'tif', 'tiff', 'avif'];
 
@@ -31,6 +33,20 @@ export const wantsPosterThumb = (
   }
   return isDecodedThumbnail(entry.name, mac);
 };
+
+/**
+ * The 256 px thumbnail URL the ⌘K palette's preview card draws as a full-size picture, or '' when
+ * the row has none. ⛔ The card skipped `wantsPosterThumb`, so a Mac HEIC (preview kind 'none')
+ * fell to `EntryIcon` in a 64 px box: a stamp-sized picture in a big card. Same rule as the
+ * explorer pane's poster, so both draw it as large as an image.
+ */
+export const posterThumbSrc = (
+  entry: Pick<FileEntry, 'name' | 'isDir' | 'path' | 'size' | 'modifiedMs'>,
+  kind: PreviewKind,
+  mac?: boolean,
+  drawn: boolean = DRAWN_FILE_ICONS,
+): string =>
+  wantsPosterThumb(entry, kind, mac, drawn) ? thumbUrl(entry.path, 256, thumbStamp(entry)) : '';
 
 /**
  * Whether the Details (i) pane's header draws the file's 256 px thumbnail as a large picture

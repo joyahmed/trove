@@ -1,0 +1,35 @@
+[
+  {
+    "message": "no bin",
+    "noBin": "D:",
+    "paths": [
+      "D:\\a"
+    ],
+    "reason": "noBin"
+  },
+  {
+    "message": "no bin",
+    "noBin": "D:",
+    "paths": [
+      "D:\\a"
+    ],
+    "reason": "off"
+  },
+  {
+    "message": "no bin",
+    "noBin": "D:",
+    "paths": [
+      "D:\\a"
+    ],
+    "reason": "tooBig"
+  },
+  {
+    "message": "no bin",
+    "noBin": "D:",
+    "paths": [
+      "D:\\a"
+    ],
+    "reason": "denied"
+  },
+  "denied"
+]

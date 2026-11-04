@@ -5,6 +5,8 @@ import { listing } from '$lib/state/listing.svelte';
 import { groupKeyItems, sortMenu } from '$lib/data/menus';
 import { locationLabel } from '$lib/utils/location';
 import { folderCounts, folderMeta } from '$lib/utils/folder-header';
+import { tildeHome } from '$lib/utils/path-display';
+import { homeFolder } from '$lib/state/home-folder.svelte';
 import { useMenu, type MenuItem } from '$lib/hooks/use-menu.svelte';
 
 export const useFolderHeader = () => {
@@ -38,8 +40,9 @@ export const useFolderHeader = () => {
     get title() {
       return locationLabel(tabs.active.location);
     },
+    /** the line under the title: home as `~` (display only — `meta`, the tooltip, keeps it whole) */
     get path() {
-      return tabs.active.path;
+      return tildeHome(tabs.active.path, homeFolder.path);
     },
     get counts() {
       return folderCounts(listing.rows);

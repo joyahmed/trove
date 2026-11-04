@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { wantsDetailsThumb, wantsPosterThumb } from './preview-poster';
+import { posterThumbSrc, wantsDetailsThumb, wantsPosterThumb } from './preview-poster';
 
 const f = (name: string) => ({ name, isDir: false });
 
@@ -66,5 +66,25 @@ describe('wantsPosterThumb for HEIC on Windows (G.57)', () => {
     }
     expect(wantsPosterThumb(f('a.xyz'), 'none', false, false)).toBe(false);
     expect(wantsPosterThumb(f('a.heic'), 'none', false, true)).toBe(false);
+  });
+});
+
+describe('posterThumbSrc (the palette preview card)', () => {
+  const e = (name: string) => ({
+    name,
+    isDir: false,
+    path: `/Users/alex/Pictures/${name}`,
+    size: 2400,
+    modifiedMs: 7,
+  });
+  it('a Mac HEIC gets the 256 px thumbnail, drawn like an image', () => {
+    const src = posterThumbSrc(e('IMG_1.heic'), 'none', true, true);
+    expect(src).toContain('/thumb/');
+    expect(src).toContain('size=256');
+    expect(src).toContain(encodeURIComponent('2400-7'));
+  });
+  it('an image renders itself, and a file with no thumbnail keeps its icon', () => {
+    expect(posterThumbSrc(e('a.png'), 'image', true, true)).toBe('');
+    expect(posterThumbSrc(e('a.xyz'), 'none', true, true)).toBe('');
   });
 });

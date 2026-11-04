@@ -27,6 +27,25 @@ describe('PaletteSettings', () => {
     expect(s.settled).toBe(true);
   });
 
+  it('takes tab sets (M8) and rebinds (M7) from the explorer live, and keeps them over a stale file', () => {
+    const s = fakeSettings();
+    const sync = new PaletteSettings(s);
+    const set = { name: 'Trove work', tabs: ['/Users/alex/a'], active: 0, savedAt: 1 };
+    // "Save tabs as…" and a rebind in the main window: its settings:changed patch
+    sync.live({ tabSets: [set], shortcutOverrides: { 'open-home': 'Ctrl+Alt+J' } });
+    expect(s.tabSets).toEqual([set]);
+    expect(s.shortcutOverrides).toEqual({ 'open-home': 'Ctrl+Alt+J' });
+    // Spotlight shown before the explorer's 400 ms save: the file has neither yet
+    sync.beginRead()(file({}));
+    expect(s.tabSets).toEqual([set]);
+    expect(s.shortcutOverrides).toEqual({ 'open-home': 'Ctrl+Alt+J' });
+    // the file catches up: released; a later delete still arrives live
+    sync.beginRead()(file({ tabSets: [set], shortcutOverrides: { 'open-home': 'Ctrl+Alt+J' } }));
+    expect(sync.held).toEqual([]);
+    sync.live({ tabSets: [] });
+    expect(s.tabSets).toEqual([]);
+  });
+
   it('ignores a stale file read after a newer live change (the 400 ms save delay)', () => {
     const s = fakeSettings({ theme: 'light' });
     const sync = new PaletteSettings(s);

@@ -16,6 +16,7 @@ import {
 
 import { pathKind, readDir } from '$lib/api/fs';
 import { readArchiveDir } from '$lib/api/archive';
+import { wslListings } from './wsl-listing-cache';
 import { archiveLocation } from '$lib/utils/archive-location';
 import type { DirListing, FileEntry } from '$lib/types/fs';
 
@@ -40,6 +41,39 @@ const entry = (name: string): FileEntry => ({
   isHidden: false,
   iconKey: 'ext/',
   typeName: 'File',
+});
+
+describe('TabState on a WSL folder (listing cache)', () => {
+  const WSL = '\\\\wsl.localhost\\Ubuntu\\home\\alex';
+  afterEach(() => wslListings.clear());
+
+  it('an unchanged reload keeps the same entries array', async () => {
+    const tab = new TabState();
+    tab.location = pathLocation(WSL);
+    const rows = [entry('a'), entry('b')];
+    tab.entries = rows;
+    vi.mocked(readDir).mockResolvedValueOnce({ path: WSL, entries: [entry('a'), entry('b')] });
+    await tab.reload();
+    expect(tab.entries).toBe(rows);
+    vi.mocked(readDir).mockResolvedValueOnce({ path: WSL, entries: [entry('a')] });
+    await tab.reload();
+    expect(tab.entries.map((e) => e.name)).toEqual(['a']);
+  });
+
+  it('a cached folder paints before its read resolves', async () => {
+    const tab = new TabState();
+    wslListings.remember(WSL, [entry('cached')]);
+    let resolve!: (l: DirListing) => void;
+    vi.mocked(readDir).mockImplementationOnce(() => new Promise((r) => (resolve = r)));
+    const going = tab.navigate(WSL);
+    await Promise.resolve();
+    expect(tab.path).toBe(WSL);
+    expect(tab.loading).toBe(false);
+    expect(tab.entries.map((e) => e.name)).toEqual(['cached']);
+    resolve({ path: WSL, entries: [entry('cached'), entry('new')] });
+    await going;
+    expect(tab.entries.map((e) => e.name)).toEqual(['cached', 'new']);
+  });
 });
 
 describe('TabState.reload', () => {

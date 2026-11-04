@@ -17,6 +17,7 @@ vi.mock('$lib/api/shell-verbs', () => ({
   runCustomCommand: vi.fn(async () => {}),
 }));
 vi.mock('$lib/api/palette', () => ({
+  hidePalette: vi.fn(async () => {}),
   registerHotkey: vi.fn(async () => {}),
   onHotkeyFailed: vi.fn(),
   onSpotlightAction: vi.fn(),

@@ -50,6 +50,26 @@ pub fn root_of<'a>(path: &Path, roots: &'a [PathBuf]) -> Option<&'a PathBuf> {
     roots.iter().find(|r| path.starts_with(r))
 }
 
+/// The guarded folders in `found`, each once, in `guarded`'s order (Desktop, Documents,
+/// Downloads…), as strings for the frontend.
+pub fn in_order(found: &[PathBuf], guarded: &[PathBuf]) -> Vec<String> {
+    guarded
+        .iter()
+        .filter(|g| found.contains(g))
+        .map(|g| g.to_string_lossy().into_owned())
+        .collect()
+}
+
+/// The guarded folders in `guarded` that are, or are inside, one of `roots`: what a search of
+/// `roots` that never enters them leaves out.
+pub fn under_any(roots: &[PathBuf], guarded: &[PathBuf]) -> Vec<PathBuf> {
+    guarded
+        .iter()
+        .filter(|g| roots.iter().any(|r| g.starts_with(r)))
+        .cloned()
+        .collect()
+}
+
 /// `roots` minus the ones in `opened`.
 pub fn unopened_of(roots: &[PathBuf], opened: &[PathBuf]) -> Vec<PathBuf> {
     roots
@@ -64,6 +84,82 @@ pub fn newly_opened(path: &Path, roots: &[PathBuf], opened: &[PathBuf]) -> Optio
     root_of(path, roots)
         .filter(|r| !opened.contains(r))
         .cloned()
+}
+
+/// The top folders of `/` that are APFS firmlinks into the data volume (`/usr/share/firmlinks`):
+/// `/System/Volumes/Data/Users/x` IS `/Users/x`.
+const FIRMLINKED: [&str; 8] = [
+    "Users",
+    "Applications",
+    "Library",
+    "Volumes",
+    "private",
+    "opt",
+    "cores",
+    "usr",
+];
+
+/// `path` in the spelling the guarded and skip lists use: a path on the data volume through a
+/// firmlink (`/System/Volumes/Data/Users/x/Documents`) as the firmlink (`/Users/x/Documents`).
+pub fn firmlinked(path: &Path) -> PathBuf {
+    match path.strip_prefix("/System/Volumes/Data") {
+        Ok(rest)
+            if rest
+                .components()
+                .next()
+                .is_some_and(|c| FIRMLINKED.iter().any(|f| c.as_os_str() == *f)) =>
+        {
+            Path::new("/").join(rest)
+        }
+        _ => path.to_path_buf(),
+    }
+}
+
+/// Where the symlink `link` points, read off the link (`readlink` asks nothing of the target),
+/// relative targets joined to the link's folder and `.`/`..` folded by name.
+pub fn link_target(link: &Path) -> Option<PathBuf> {
+    let raw = std::fs::read_link(link).ok()?;
+    let joined = link.parent().map_or(raw.clone(), |p| p.join(&raw));
+    let mut out = PathBuf::new();
+    for c in joined.components() {
+        match c {
+            std::path::Component::ParentDir => {
+                out.pop();
+            }
+            std::path::Component::CurDir => {}
+            other => out.push(other),
+        }
+    }
+    Some(out)
+}
+
+/// Whether `target` lies in an unopened guarded folder or on a skipped mount (a share, an
+/// automount, a `nobrowse` volume), under any of its spellings.
+pub fn target_fenced(target: &Path, guarded: &[PathBuf], skip: &[PathBuf]) -> bool {
+    let t = firmlinked(target);
+    guarded.iter().chain(skip).any(|g| t.starts_with(g))
+}
+
+/// Mac: whether following the symlink `link` would step into what no walk may enter.
+///
+/// ⛔ A listing follows each symlink once to learn whether it is a folder (`fs::entry_from`).
+/// `/home` is a link to `/System/Volumes/Data/home`, the `auto_home` automount, and following
+/// it is macOS's "access files on a network volume" prompt — raised by a ⌘K search and by
+/// This Mac's "Search everywhere" with no share mounted (Mac test, 2026-11-04). A link into an
+/// unopened `~/Documents` is the Documents prompt the same way. Such a link stays a link.
+/// Always false off a Mac (where the follow is what it always was).
+pub fn link_is_fenced(link: &Path) -> bool {
+    if !cfg!(target_os = "macos") {
+        return false;
+    }
+    let Some(target) = link_target(link) else {
+        return false;
+    };
+    target_fenced(
+        &target,
+        &unopened(),
+        &crate::core::mounts::walk_skip_points(),
+    )
 }
 
 struct State {
@@ -215,6 +311,81 @@ mod tests {
         // the rest of Library stays walked
         assert_eq!(root_of(&home().join("Library/Preferences"), &roots), None);
         assert_eq!(root_of(&home().join("Library/PhotosOther"), &roots), None);
+    }
+
+    #[test]
+    fn what_a_search_left_out_is_named_once_in_the_lists_order() {
+        let roots = protected_under(&home());
+        let found = [
+            home().join("Downloads"),
+            home().join("Desktop"),
+            home().join("Downloads"),
+        ];
+        // built with join, as the roots are: Windows joins with `\`
+        let named = |p: &str| home().join(p).to_string_lossy().into_owned();
+        assert_eq!(
+            in_order(&found, &roots),
+            [named("Desktop"), named("Downloads")]
+        );
+        // a search of the home folder leaves out every guarded folder; one of Projects, none
+        assert_eq!(under_any(&[home()], &roots).len(), roots.len());
+        assert!(under_any(&[home().join("Projects")], &roots).is_empty());
+        assert_eq!(
+            under_any(&[home().join("Library")], &roots),
+            [
+                home().join("Library/Mobile Documents"),
+                home().join("Library/CloudStorage"),
+                home().join("Library/Group Containers"),
+                home().join("Library/Calendars"),
+                home().join("Library/Application Support/AddressBook"),
+                home().join("Library/Photos"),
+            ]
+        );
+    }
+
+    /// ⭐ The network-volume prompt from a ⌘K search with no share mounted: `/home` links to the
+    /// `auto_home` automount, and the listing followed it. And a link spelled through the data
+    /// volume into an unopened `~/Documents` is fenced like `~/Documents` itself.
+    #[test]
+    fn a_link_into_an_automount_or_an_unopened_folder_is_fenced() {
+        let guarded = protected_under(&home());
+        let skip = [
+            PathBuf::from("/System/Volumes/Data"),
+            PathBuf::from("/System/Volumes/Data/home"),
+        ];
+        let fenced = |t: &str| target_fenced(Path::new(t), &guarded, &skip);
+        assert!(fenced("/System/Volumes/Data/home"));
+        assert!(fenced("/System/Volumes/Data/Users/x/Documents/a"));
+        assert!(fenced("/Users/x/Desktop"));
+        // the data volume through a firmlink is an ordinary folder; so is the rest of home
+        assert!(!fenced("/System/Volumes/Data/Users/x/Projects"));
+        assert!(!fenced("/Users/x/Projects"));
+        assert!(!fenced("/"));
+        assert_eq!(
+            firmlinked(Path::new("/System/Volumes/Data/Users/x")),
+            PathBuf::from("/Users/x")
+        );
+        assert_eq!(
+            firmlinked(Path::new("/System/Volumes/Data/home")),
+            PathBuf::from("/System/Volumes/Data/home")
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_target_is_read_off_the_link_and_folded() {
+        let dir = std::env::temp_dir().join(format!("trove-pf-link-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("a")).unwrap();
+        std::os::unix::fs::symlink("../b/./c", dir.join("a/rel")).unwrap();
+        std::os::unix::fs::symlink("/System/Volumes/Data/home", dir.join("home")).unwrap();
+        assert_eq!(link_target(&dir.join("a/rel")), Some(dir.join("b/c")));
+        assert_eq!(
+            link_target(&dir.join("home")),
+            Some(PathBuf::from("/System/Volumes/Data/home"))
+        );
+        assert_eq!(link_target(&dir.join("a")), None, "not a link");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

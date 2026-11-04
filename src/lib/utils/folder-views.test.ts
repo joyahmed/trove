@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   MAX_FOLDER_VIEWS,
+  applyFolderViewToSubfolders,
+  isBelow,
+  nearestFolderView,
   effectiveFolderView,
   findFolderView,
   isDownloadsFolder,
@@ -277,5 +280,108 @@ describe('per-folder layout (plan 15 G.53)', () => {
       ['content', null],
       ['small', null],
     ]);
+  });
+});
+
+describe('inherited folder views (plan 08 F4)', () => {
+  const grouped = (path: string) => view(path, { groupKey: 'modifiedMs', view: 'tiles' });
+
+  it('a subfolder with no view of its own follows its ancestor', () => {
+    const views = [grouped('c:\\work')];
+    const got = effectiveFolderView('C:\\Work\\a\\b', views, null, GLOBAL);
+    expect(got.groupKey).toBe('modifiedMs');
+    expect(got.view).toBe('tiles');
+    expect(effectiveFolderView('C:\\Other', views, null, GLOBAL)).toEqual(GLOBAL);
+  });
+
+  it('the nearest ancestor wins, and a folder own entry wins over both', () => {
+    const views = [
+      view('c:\\work', { view: 'grid' }),
+      view('c:\\work\\a', { view: 'list' }),
+      view('c:\\work\\a\\b', { view: 'tiles' }),
+    ];
+    expect(effectiveFolderView('C:\\Work\\a\\b\\c', views, null, GLOBAL).view).toBe('tiles');
+    expect(effectiveFolderView('C:\\Work\\a\\x', views, null, GLOBAL).view).toBe('list');
+    expect(effectiveFolderView('C:\\Work\\z', views, null, GLOBAL).view).toBe('grid');
+    expect(effectiveFolderView('C:\\Work\\a', views, null, GLOBAL).view).toBe('list');
+  });
+
+  it('a name that only starts the same is not an ancestor', () => {
+    const views = [grouped('c:\\work')];
+    expect(effectiveFolderView('C:\\Workshop\\a', views, null, GLOBAL)).toEqual(GLOBAL);
+  });
+
+  it('an ancestor entry beats the Downloads seed, the seed beats nothing', () => {
+    const views = [view('c:\\users\\alex', { groupKey: null })];
+    expect(effectiveFolderView(DOWNLOADS, views, DOWNLOADS, GLOBAL).groupKey).toBeNull();
+    expect(effectiveFolderView(DOWNLOADS, [], DOWNLOADS, GLOBAL).groupKey).toBe('modifiedMs');
+  });
+
+  it('a drive root entry is inherited by everything on that drive', () => {
+    const views = [grouped('c:\\')];
+    expect(effectiveFolderView('C:\\a\\b', views, null, GLOBAL).view).toBe('tiles');
+    expect(effectiveFolderView('D:\\a', views, null, GLOBAL).view).toBe('details');
+  });
+
+  it('works for WSL paths (case kept)', () => {
+    const root = '\\\\wsl.localhost\\Ubuntu\\home\\alex';
+    const views = [grouped(root)];
+    expect(effectiveFolderView(root + '\\proj\\src', views, null, GLOBAL).view).toBe('tiles');
+    expect(effectiveFolderView('\\\\wsl.localhost\\Ubuntu\\etc', views, null, GLOBAL).view).toBe(
+      'details',
+    );
+  });
+
+  const MAC = { os: 'macos' } as never;
+  const LIN = { os: 'linux' } as never;
+  it('POSIX paths: case-sensitive, / and /Users/x chains', () => {
+    for (const p of [MAC, LIN]) {
+      const views = [grouped('/Users/Alex')];
+      expect(nearestFolderView(views, '/Users/Alex/a/b', p)?.path).toBe('/Users/Alex');
+      expect(nearestFolderView(views, '/users/alex/a', p)).toBeNull();
+      expect(nearestFolderView([grouped('/')], '/tmp/x', p)?.path).toBe('/');
+      expect(nearestFolderView(views, '/Users/Alexa', p)).toBeNull();
+      expect(isBelow('/a/b/c', '/a/b/', p)).toBe(true);
+      expect(isBelow('/a/b', '/a/b', p)).toBe(false);
+    }
+  });
+
+  it('Windows isBelow ignores slash direction and case', () => {
+    expect(isBelow('c:/Work/A/b', 'C:\\work')).toBe(true);
+    expect(isBelow('C:\\work', 'C:\\work')).toBe(false);
+    expect(isBelow('C:\\workx', 'C:\\work')).toBe(false);
+  });
+
+  it('apply to subfolders files the view and clears descendants, nothing else', () => {
+    const views = [
+      view('c:\\work\\a', { view: 'list' }),
+      view('c:\\work\\a\\deep', { view: 'grid' }),
+      view('c:\\work', { view: 'grid' }),
+      view('c:\\other', { view: 'tiles' }),
+      view('c:\\workshop', { view: 'tiles' }),
+    ];
+    const out = applyFolderViewToSubfolders(views, 'C:\\Work', {
+      groupKey: 'modifiedMs',
+      sortKey: 'name',
+      sortDir: 'asc',
+      view: 'content',
+      iconSize: 96,
+    });
+    expect(out.map((v) => v.path)).toEqual(['c:\\work', 'c:\\other', 'c:\\workshop']);
+    expect(out[0]).toMatchObject({ view: 'content', iconSize: 96, groupKey: 'modifiedMs' });
+    expect(effectiveFolderView('C:\\Work\\a\\deep', out, null, GLOBAL).view).toBe('content');
+    expect(applyFolderViewToSubfolders(views, '', GLOBAL).length).toBe(views.length);
+  });
+
+  it('old saved data (no new fields) loads unchanged and now inherits', () => {
+    const old = [{ path: 'C:\\Old\\', groupKey: 'size', sortKey: 'name', sortDir: 'desc' }];
+    const loaded = sanitizeFolderViews(old);
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0]).toMatchObject({ path: 'c:\\old', view: null, iconSize: null });
+    expect(effectiveFolderView('C:\\Old\\sub', loaded, null, GLOBAL)).toMatchObject({
+      groupKey: 'size',
+      sortDir: 'desc',
+      view: 'details',
+    });
   });
 });

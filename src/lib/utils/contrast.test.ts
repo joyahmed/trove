@@ -13,6 +13,11 @@ describe('contrast', () => {
     expect(textOnAccent('#8ea2ff')).toBe('#000');
   });
 
+  it('keeps the accent text pairs at WCAG AA (>= 4.5)', () => {
+    expect(contrastRatio('#2f4bd0', '#ffffff')!).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio('#8ea2ff', '#000000')!).toBeGreaterThanOrEqual(4.5);
+  });
+
   it('picks black on a yellow and white on a dark red', () => {
     expect(textOnAccent('#ffd400')).toBe('#000');
     expect(textOnAccent('#8b0000')).toBe('#fff');

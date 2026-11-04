@@ -5,6 +5,7 @@ import type { Totals } from '$lib/state/details.svelte';
 import { fmtDate, fmtSize } from '$lib/utils/format';
 import { archiveRowWhere, isArchivePath } from '$lib/utils/archive-location';
 import { parentOf } from '$lib/utils/path';
+import { tildeHome } from '$lib/utils/path-display';
 import { onWindows } from '$lib/utils/platform';
 import type { RecycleItem } from '$lib/types/recycle';
 import { kindText } from '$lib/components/places/recycle-parts/recycle-columns';
@@ -13,6 +14,8 @@ export interface DetailsRow {
   key: string;
   label: string;
   value: (props: Props, totals: Totals | null) => string | null;
+  /** how the value is SHOWN (the full `value` stays the tooltip); default: as is */
+  shown?: (value: string, home: string | null) => string;
 }
 
 const bytes = (n: number) => `${fmtSize(n)} (${n.toLocaleString()} bytes)`;
@@ -83,7 +86,13 @@ export const recycleItemRows = (
 
 export const detailsRows: DetailsRow[] = [
   { key: 'type', label: 'Type', value: (p) => p.typeName },
-  { key: 'location', label: 'Location', value: (p) => archiveRowWhere(p.path) ?? parentOf(p.path) },
+  {
+    key: 'location',
+    label: 'Location',
+    value: (p) => archiveRowWhere(p.path) ?? parentOf(p.path),
+    // home as `~`, display only (an archive's `a.zip › docs` is no path and passes through)
+    shown: (v, home) => tildeHome(v, home),
+  },
   {
     key: 'size',
     label: 'Size',

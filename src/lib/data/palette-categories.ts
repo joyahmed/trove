@@ -11,6 +11,7 @@ export interface PaletteCategoryInfo {
 export const paletteCategories: PaletteCategoryInfo[] = [
   // first, so an answer wins the ranker's category tie-break and sits above every other group
   { key: 'calc', label: 'Calculator', glyph: 'calculator' },
+  { key: 'ext', label: 'Search', glyph: 'search' },
   { key: 'actions', label: 'Actions', glyph: 'more' },
   { key: 'path', label: 'Path', glyph: 'folder' },
   { key: 'recent', label: 'Recent', glyph: 'refresh' },

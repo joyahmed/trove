@@ -1,4 +1,4 @@
-//! Recursive search under a folder: a `walkdir` walk that never follows links or reparse
+//! Recursive search under a folder: a walk of our own that never follows links or reparse
 //! points, filters each entry against a `SearchQuery`, and hands matches to a sink in batches
 //! so the frontend can paint while the walk goes on. No tauri types; the command layer wires
 //! the sink to an event.
@@ -109,7 +109,9 @@ pub fn skip_dir(name: &str, parent: Option<&str>) -> bool {
 /// Walk every root in turn and hand every match to `sink` in batches of `batch_size` or every
 /// `BATCH_INTERVAL`. Returns the number of entries visited over all roots. Individual
 /// unreadable entries are skipped, a root that is not a folder is skipped; only when no root
-/// is a folder is it an error. `cancel` is checked per entry and stops the whole walk.
+/// is a folder is it an error. `cancel` is checked per entry and stops the whole walk. The
+/// unopened guarded folders it left out are added to `skipped` (each once), so the results can
+/// say "Not searched: Desktop, Documents…" and offer to open them.
 pub fn walk(
     roots: &[PathBuf],
     q: &SearchQuery,
@@ -117,6 +119,7 @@ pub fn walk(
     cancel: &AtomicBool,
     batch_size: usize,
     sink: &mut dyn FnMut(Vec<FileEntry>, u64),
+    skipped: &mut Vec<PathBuf>,
 ) -> Result<u64, String> {
     walk_every(
         roots,
@@ -126,6 +129,7 @@ pub fn walk(
         batch_size,
         BATCH_INTERVAL,
         sink,
+        skipped,
     )
 }
 
@@ -137,6 +141,14 @@ pub fn walk(
 /// `/` on a Mac used to walk into `/Volumes/<share>`, and that is macOS's "access files on a
 /// network volume" prompt; on Linux, a hang on a dead NFS server. A root that IS a share is
 /// walked — the person opened it.
+///
+/// ⛔ The same for a Mac's privacy-guarded folders the person has not opened in Trove
+/// (`core::privacy_folders`): from `/` or the home folder a walk reached `~/Desktop`, `~/Music`
+/// and `~/Pictures` four levels down and each listing raised its own prompt — the palette's
+/// "Find anything" fired them on every search (Mac test, 2026-11-04). The folder's own row is
+/// still listed (a `stat` of it asks nothing); its contents are not, and it is added to `skipped`
+/// (each once). A root inside one is walked.
+#[allow(clippy::too_many_arguments)]
 pub fn walk_every(
     roots: &[PathBuf],
     q: &SearchQuery,
@@ -145,8 +157,10 @@ pub fn walk_every(
     batch_size: usize,
     interval: Duration,
     sink: &mut dyn FnMut(Vec<FileEntry>, u64),
+    skipped: &mut Vec<PathBuf>,
 ) -> Result<u64, String> {
-    let network = crate::core::mounts::network_mount_points();
+    let network = crate::core::mounts::walk_skip_points();
+    let guarded = crate::core::privacy_folders::unopened();
     walk_skipping(
         roots,
         q,
@@ -155,13 +169,16 @@ pub fn walk_every(
         batch_size,
         interval,
         &network,
+        &guarded,
         sink,
+        skipped,
     )
 }
 
-/// `walk_every` with the network mount points as a parameter, so a test can name one.
+/// `walk_every` with the network mount points and the unopened guarded folders as parameters,
+/// so a test can name them. Each guarded folder it did not enter is added to `skipped` once.
 #[allow(clippy::too_many_arguments)]
-fn walk_skipping(
+pub(crate) fn walk_skipping(
     roots: &[PathBuf],
     q: &SearchQuery,
     include_hidden: bool,
@@ -169,60 +186,140 @@ fn walk_skipping(
     batch_size: usize,
     interval: Duration,
     network: &[PathBuf],
+    guarded: &[PathBuf],
     sink: &mut dyn FnMut(Vec<FileEntry>, u64),
+    skipped: &mut Vec<PathBuf>,
+) -> Result<u64, String> {
+    walk_opening(
+        roots,
+        q,
+        include_hidden,
+        cancel,
+        batch_size,
+        interval,
+        network,
+        guarded,
+        &mut |p| std::fs::read_dir(p),
+        sink,
+        skipped,
+    )
+}
+
+/// `walk_skipping` with the folder opener as a parameter, so a test can see every folder the
+/// walk lists — and prove a guarded one never is.
+#[allow(clippy::too_many_arguments)]
+fn walk_opening(
+    roots: &[PathBuf],
+    q: &SearchQuery,
+    include_hidden: bool,
+    cancel: &AtomicBool,
+    batch_size: usize,
+    interval: Duration,
+    network: &[PathBuf],
+    guarded: &[PathBuf],
+    open: &mut dyn FnMut(&Path) -> std::io::Result<std::fs::ReadDir>,
+    sink: &mut dyn FnMut(Vec<FileEntry>, u64),
+    skipped: &mut Vec<PathBuf>,
 ) -> Result<u64, String> {
     let folders: Vec<&PathBuf> = roots.iter().filter(|r| r.is_dir()).collect();
     if folders.is_empty() {
         let shown: Vec<String> = roots.iter().map(|r| r.display().to_string()).collect();
         return Err(format!("{}: not a folder", shown.join(", ")));
     }
+    // ⛔ Named before the walk starts, not as it meets them: a search of This Mac stopped before
+    // it reached the home folder said nothing at all ("Search results in This Mac (0)"), so the
+    // Allow line never showed (Mac test, 2026-11-04). Each guarded folder under a root that
+    // exists (a `stat` of the folder itself asks nothing) will not be entered, so it is said now.
+    for g in crate::core::privacy_folders::under_any(roots, guarded) {
+        if !skipped.contains(&g) && std::fs::symlink_metadata(&g).is_ok() {
+            skipped.push(g);
+        }
+    }
+    // the guarded folders by identity too: `/System/Volumes/Data/Users/<me>/Documents` is
+    // `~/Documents` under another name (an APFS firmlink); `realpath` keeps that spelling, the
+    // device and inode do not lie
+    let guarded_ids: Vec<(FolderId, &PathBuf)> = guarded
+        .iter()
+        .filter_map(|g| folder_id(&std::fs::symlink_metadata(g).ok()?).map(|id| (id, g)))
+        .collect();
     let mut types: HashMap<Option<String>, String> = HashMap::new();
     let mut batch: Vec<FileEntry> = Vec::with_capacity(batch_size.max(1));
     let mut last_flush = Instant::now();
     let mut scanned: u64 = 0;
 
     'roots: for root in folders {
-        let mut walker = walkdir::WalkDir::new(root).follow_links(false).min_depth(1);
-        if let Some(depth) = q.max_depth {
-            walker = walker.max_depth(depth);
+        // ⛔ Our own walk, not `walkdir`: walkdir opens a folder (`read_dir`) BEFORE it yields
+        // it, so `skip_current_dir` came after `~/Desktop` was already listed, and on a Mac
+        // that listing IS the privacy prompt — "Search everywhere" still raised Desktop,
+        // Documents and Downloads (Mac test, 2026-11-04). Here a folder is opened only after
+        // every check below said it may be entered. Open listings, deepest last, each with the
+        // depth of its entries (the root's own entries are depth 1, as `min_depth(1)` was).
+        let may_open = |depth: usize| q.max_depth.is_none_or(|m| depth <= m);
+        let mut stack: Vec<(std::fs::ReadDir, usize)> = Vec::new();
+        if may_open(1) {
+            if let Ok(list) = open(root) {
+                stack.push((list, 1));
+            }
         }
-        let mut it = walker.into_iter();
-        loop {
+        while let Some((list, depth)) = stack.last_mut() {
             if cancel.load(Ordering::Relaxed) {
                 break 'roots;
             }
-            let Some(next) = it.next() else { break };
-            let entry = match next {
-                Ok(e) => e,
-                Err(_) => continue, // a permission wall or a vanished entry: skip, keep walking
+            let depth = *depth;
+            let Some(next) = list.next() else {
+                stack.pop();
+                continue;
+            };
+            // a permission wall or a vanished entry: skip, keep walking
+            let Ok(entry) = next else { continue };
+            let Ok(file_type) = entry.file_type() else {
+                continue;
             };
             scanned += 1;
+            let path = entry.path();
+            // ⛔ before `metadata`: an `lstat` of a share's mount point is already a request to
+            // the share, and that is the network-volume prompt. The type comes from the listing.
+            if file_type.is_dir() && crate::core::mounts::is_network_point(&path, network) {
+                continue;
+            }
+            // never follows a link: the listing's own `lstat`
             let meta = entry.metadata().ok();
             let name = entry.file_name().to_string_lossy().into_owned();
             // Never descend into links, junctions, the system's own folders, or (when hidden
             // are off) hidden folders.
             let hidden = fs::is_hidden_entry(&name, meta.as_ref());
-            if entry.file_type().is_dir() {
-                let parent = entry
-                    .path()
+            let mut descend = false;
+            if file_type.is_dir() {
+                let parent = path
                     .parent()
                     .and_then(Path::file_name)
                     .map(|p| p.to_string_lossy().into_owned());
-                if is_reparse_point(meta.as_ref())
-                    || skip_dir(&name, parent.as_deref())
-                    || crate::core::mounts::is_network_point(entry.path(), network)
-                {
-                    it.skip_current_dir();
+                if is_reparse_point(meta.as_ref()) || skip_dir(&name, parent.as_deref()) {
                     continue;
                 }
-                if hidden && !include_hidden {
-                    it.skip_current_dir();
+                // the guarded folder's own row is kept (its name may be what was asked for);
+                // its contents are never read
+                let by_id = || {
+                    let id = meta.as_ref().and_then(folder_id)?;
+                    guarded_ids.iter().find(|(g, _)| *g == id).map(|(_, p)| *p)
+                };
+                if let Some(g) = guarded.iter().find(|g| **g == path).or_else(by_id) {
+                    if !skipped.contains(g) {
+                        skipped.push(g.clone());
+                    }
+                } else {
+                    descend = !(hidden && !include_hidden) && may_open(depth + 1);
+                }
+            }
+            if descend {
+                if let Ok(list) = open(&path) {
+                    stack.push((list, depth + 1));
                 }
             }
             if hidden && !include_hidden {
                 continue;
             }
-            let file = fs::entry_from(entry.into_path(), meta, &mut types);
+            let file = fs::entry_from(path, meta, &mut types);
             if matches(&file, q) {
                 batch.push(file);
             }
@@ -236,6 +333,21 @@ fn walk_skipping(
         sink(batch, scanned);
     }
     Ok(scanned)
+}
+
+/// A folder's device and inode: the same folder under any name.
+type FolderId = (u64, u64);
+
+#[cfg(unix)]
+fn folder_id(meta: &Metadata) -> Option<FolderId> {
+    use std::os::unix::fs::MetadataExt;
+    meta.is_dir().then(|| (meta.dev(), meta.ino()))
+}
+
+/// Windows has no firmlinks; the path compare is the whole fence there.
+#[cfg(not(unix))]
+fn folder_id(_meta: &Metadata) -> Option<FolderId> {
+    None
 }
 
 #[cfg(windows)]
@@ -271,6 +383,7 @@ mod tests {
             ext,
             is_hidden: false,
             is_link: false,
+            cloud_state: None,
             icon_key: String::new(),
             type_name: String::new(),
         }
@@ -388,6 +501,7 @@ mod tests {
             &mut |batch, _| {
                 names.extend(batch.into_iter().map(|e| e.name));
             },
+            &mut Vec::new(),
         )
         .unwrap();
         names.sort();
@@ -450,6 +564,7 @@ mod tests {
                 got += batch.len();
                 cancel.store(true, Ordering::Relaxed);
             },
+            &mut Vec::new(),
         )
         .unwrap();
         assert_eq!(batches, 1);
@@ -471,7 +586,9 @@ mod tests {
             BATCH_SIZE,
             BATCH_INTERVAL,
             std::slice::from_ref(&share),
+            &[],
             &mut |batch, _| names.extend(batch.into_iter().map(|e| e.name)),
+            &mut Vec::new(),
         )
         .unwrap();
         // neither the share nor anything inside it is listed
@@ -490,10 +607,190 @@ mod tests {
             BATCH_SIZE,
             BATCH_INTERVAL,
             std::slice::from_ref(&share),
+            &[],
             &mut |batch, _| inside.extend(batch.into_iter().map(|e| e.name)),
+            &mut Vec::new(),
         )
         .unwrap();
         assert!(inside.iter().any(|n| n == "2024"), "{inside:?}");
+    }
+
+    #[test]
+    fn an_unopened_guarded_folder_is_named_but_never_read() {
+        // a fake home: `photos` stands in for ~/Pictures, guarded and not opened yet
+        let t = tree("guarded");
+        let guarded = t.0.join("photos");
+        let cancel = AtomicBool::new(false);
+        let mut names = Vec::new();
+        let mut skipped = Vec::new();
+        walk_skipping(
+            std::slice::from_ref(&t.0),
+            &query(""),
+            true,
+            &cancel,
+            BATCH_SIZE,
+            BATCH_INTERVAL,
+            &[],
+            std::slice::from_ref(&guarded),
+            &mut |batch, _| names.extend(batch.into_iter().map(|e| e.name)),
+            &mut skipped,
+        )
+        .unwrap();
+        // and it says so, once: the results offer to open it
+        assert_eq!(skipped, std::slice::from_ref(&guarded));
+        // its own row is there; nothing inside it is: the walk never listed it
+        assert!(names.iter().any(|n| n == "photos"), "{names:?}");
+        assert!(
+            !names
+                .iter()
+                .any(|n| n == "cat.png" || n == "2024" || n == "dog.PNG"),
+            "{names:?}"
+        );
+        assert!(names.iter().any(|n| n == "Report.docx"), "{names:?}");
+        // a root inside it is walked: the person went there
+        let mut inside = Vec::new();
+        walk_skipping(
+            std::slice::from_ref(&guarded),
+            &query(""),
+            true,
+            &cancel,
+            BATCH_SIZE,
+            BATCH_INTERVAL,
+            &[],
+            std::slice::from_ref(&guarded),
+            &mut |batch, _| inside.extend(batch.into_iter().map(|e| e.name)),
+            &mut skipped,
+        )
+        .unwrap();
+        assert!(inside.iter().any(|n| n == "cat.png"), "{inside:?}");
+        assert_eq!(
+            skipped,
+            std::slice::from_ref(&guarded),
+            "a walked root is not reported again"
+        );
+    }
+
+    /// ⭐ The listing is the prompt: walkdir opened `~/Desktop` before it handed it over, so
+    /// skipping it afterwards still raised the dialog (Mac test, 2026-11-04). Every folder the
+    /// walk opens goes through `open` here: a guarded folder, a share's mount point, a skipped
+    /// system folder, a hidden one and one past `max_depth` are never opened at all.
+    #[test]
+    fn a_guarded_folder_is_decided_before_it_is_opened() {
+        let t = tree("unopened");
+        stdfs::create_dir_all(t.0.join("node_modules").join("pkg")).unwrap();
+        stdfs::create_dir_all(t.0.join(".cache").join("x")).unwrap();
+        stdfs::create_dir_all(t.0.join("share").join("y")).unwrap();
+        let guarded = t.0.join("photos");
+        let network = t.0.join("share");
+        let cancel = AtomicBool::new(false);
+        let mut opened: Vec<PathBuf> = Vec::new();
+        let mut names = Vec::new();
+        let mut skipped = Vec::new();
+        let scanned = walk_opening(
+            std::slice::from_ref(&t.0),
+            &query(""),
+            false,
+            &cancel,
+            BATCH_SIZE,
+            BATCH_INTERVAL,
+            std::slice::from_ref(&network),
+            std::slice::from_ref(&guarded),
+            &mut |p| {
+                opened.push(p.to_path_buf());
+                stdfs::read_dir(p)
+            },
+            &mut |batch, _| names.extend(batch.into_iter().map(|e| e.name)),
+            &mut skipped,
+        )
+        .unwrap();
+        opened.sort();
+        assert_eq!(opened, vec![t.0.clone(), t.0.join("docs")], "{opened:?}");
+        assert_eq!(skipped, std::slice::from_ref(&guarded));
+        assert!(names.iter().any(|n| n == "photos"), "{names:?}");
+        assert_eq!(
+            scanned, 8,
+            "root: 7 entries + docs/Report.docx; nothing inside the rest"
+        );
+        // a depth limit stops the opening too, not only the listing
+        let mut shallow: Vec<PathBuf> = Vec::new();
+        let mut q = query("");
+        q.max_depth = Some(1);
+        walk_opening(
+            std::slice::from_ref(&t.0),
+            &q,
+            true,
+            &cancel,
+            BATCH_SIZE,
+            BATCH_INTERVAL,
+            &[],
+            &[],
+            &mut |p| {
+                shallow.push(p.to_path_buf());
+                stdfs::read_dir(p)
+            },
+            &mut |_, _| {},
+            &mut Vec::new(),
+        )
+        .unwrap();
+        assert_eq!(shallow, vec![t.0.clone()]);
+    }
+
+    /// ⭐ This Mac's "Search everywhere" raised the Desktop, Documents and Downloads prompts: the
+    /// walk met `~/Documents` again as `/System/Volumes/Data/Users/<me>/Documents` (an APFS
+    /// firmlink), which a path compare does not catch. Here the guarded folder is named through
+    /// a link (`alias/photos`) and the walk meets it as `photos`: same folder, so not entered.
+    #[cfg(unix)]
+    #[test]
+    fn a_guarded_folder_met_under_another_name_is_still_not_entered() {
+        let t = tree("alias");
+        std::os::unix::fs::symlink(&t.0, t.0.join("alias")).unwrap();
+        let guarded = t.0.join("alias").join("photos");
+        let cancel = AtomicBool::new(false);
+        let mut names = Vec::new();
+        let mut skipped = Vec::new();
+        walk_skipping(
+            std::slice::from_ref(&t.0),
+            &query(""),
+            true,
+            &cancel,
+            BATCH_SIZE,
+            BATCH_INTERVAL,
+            &[],
+            std::slice::from_ref(&guarded),
+            &mut |batch, _| names.extend(batch.into_iter().map(|e| e.name)),
+            &mut skipped,
+        )
+        .unwrap();
+        assert!(
+            !names.iter().any(|n| n == "cat.png" || n == "2024"),
+            "{names:?}"
+        );
+        assert_eq!(skipped, std::slice::from_ref(&guarded));
+    }
+
+    /// ⭐ A search of This Mac stopped before it reached the home folder said nothing about the
+    /// folders it would leave out, so the "Not searched … Allow" line never showed.
+    #[test]
+    fn a_stopped_walk_still_names_the_guarded_folders_under_its_roots() {
+        let t = tree("stopped");
+        let guarded = [t.0.join("photos"), t.0.join("missing")];
+        let cancel = AtomicBool::new(true);
+        let mut skipped = Vec::new();
+        walk_skipping(
+            std::slice::from_ref(&t.0),
+            &query(""),
+            true,
+            &cancel,
+            BATCH_SIZE,
+            BATCH_INTERVAL,
+            &[],
+            &guarded,
+            &mut |_, _| {},
+            &mut skipped,
+        )
+        .unwrap();
+        // the one that exists; a guarded folder this machine does not have is not named
+        assert_eq!(skipped, [t.0.join("photos")]);
     }
 
     #[test]
@@ -514,6 +811,7 @@ mod tests {
                 heartbeats += 1;
                 last_scanned = scanned;
             },
+            &mut Vec::new(),
         )
         .unwrap();
         assert!(heartbeats >= 1, "no heartbeat arrived");
@@ -547,6 +845,7 @@ mod tests {
             &cancel,
             BATCH_SIZE,
             &mut |batch, _| names.extend(batch.into_iter().map(|e| e.path)),
+            &mut Vec::new(),
         )
         .unwrap();
         // one readme per tree; the one under node_modules is never seen
@@ -569,6 +868,7 @@ mod tests {
             &cancel,
             BATCH_SIZE,
             &mut |_, _| {},
+            &mut Vec::new(),
         )
         .unwrap_err();
         assert!(err.contains("not a folder"), "{err}");

@@ -5,6 +5,7 @@ use tauri_plugin_opener::OpenerExt;
 
 use crate::core::fs::{self, DirListing, PathKind};
 use crate::core::ops;
+use crate::core::workers;
 
 type CmdResult<T> = Result<T, String>;
 
@@ -26,10 +27,137 @@ pub fn read_dir(app: AppHandle, path: String) -> CmdResult<DirListing> {
     Ok(listing)
 }
 
+/// How many entries the palette preview shows under a folder row, or `None` without reading
+/// it. ⛔ A highlighted row is not an act of opening: the preview counted `~/Desktop` and
+/// `~/Music` as soon as a search ranked them first, and each listing raised a Mac privacy
+/// prompt that took the palette's focus (Mac test, 2026-11-04). So a folder inside a guarded
+/// folder the person has not opened, or on a network share or automount, is not counted, and
+/// this listing never marks a guarded folder as opened (`read_dir` does, for a real opening).
+#[tauri::command(async)]
+pub fn palette_folder_count(path: String) -> Option<usize> {
+    let guarded = crate::core::privacy_folders::unopened();
+    let skip = crate::core::mounts::walk_skip_points();
+    palette_count_with(&path, &guarded, &skip)
+}
+
+/// Mac: the privacy-guarded folders (Desktop, Documents, Downloads…) the person has not opened
+/// in Trove yet, which searches leave out. Empty off a Mac and once every one is opened.
+#[tauri::command(async)]
+pub fn unopened_guarded_folders() -> Vec<String> {
+    let unopened = crate::core::privacy_folders::unopened();
+    crate::core::privacy_folders::in_order(&unopened, &unopened)
+}
+
+/// "Not searched: Desktop, Documents… — Allow": read each of `paths` once, so macOS asks for it
+/// now, at a moment the person chose, and remember each one the OS let Trove into as opened
+/// (`privacy_folders::note_listed`, the same path `read_dir` takes), so searches enter it from
+/// then on. Answers the folders now opened; one the person refused stays unopened and is asked
+/// again only on the next Allow. ⛔ Only a guarded folder not opened yet is read: a path the
+/// webview names that is anything else is ignored.
+#[tauri::command(async)]
+pub fn allow_guarded_folders(app: AppHandle, paths: Vec<String>) -> Vec<String> {
+    let unopened = crate::core::privacy_folders::unopened();
+    let opened = allow_each(
+        &paths,
+        &unopened,
+        can_list,
+        crate::core::privacy_folders::note_listed,
+    );
+    for folder in &opened {
+        index_opened(&app, folder.clone());
+    }
+    opened
+        .iter()
+        .map(|p| p.to_string_lossy().into_owned())
+        .collect()
+}
+
+/// Whether the OS lets Trove read `path` — the folder AND what is guarded inside it. On a Mac
+/// these reads are what raise the prompts.
+///
+/// ⛔ Not a listing of the folder alone: `~/Pictures`, `~/Music` and `~/Movies` list fine with
+/// Photos and Apple Music refused, because the prompt guards the library INSIDE them (`Photos
+/// Library.photoslibrary`, `Music/Media.localized`). A one-level read marked them opened after
+/// the person said "Don't Allow", and every later walk went in (Mac test, 2026-11-04). So the
+/// folder is walked a few levels down, a bounded number of entries; a refusal anywhere in that
+/// walk (`EPERM`, TCC's answer — not an ordinary `EACCES` file mode) means not opened.
+fn can_list(path: &Path) -> bool {
+    access_granted(path, 3, 4000, refused_by_os)
+}
+
+#[cfg(unix)]
+fn refused_by_os(e: &std::io::Error) -> bool {
+    e.raw_os_error() == Some(libc::EPERM)
+}
+
+/// No TCC off a Unix; nothing is guarded there (`privacy_folders` is empty), so never called.
+#[cfg(not(unix))]
+fn refused_by_os(e: &std::io::Error) -> bool {
+    e.kind() == std::io::ErrorKind::PermissionDenied
+}
+
+/// `can_list` with the depth, the entry cap and what counts as a refusal as parameters.
+fn access_granted(
+    path: &Path,
+    max_depth: usize,
+    max_entries: usize,
+    refused: impl Fn(&std::io::Error) -> bool,
+) -> bool {
+    if std::fs::read_dir(path).is_err() {
+        return false;
+    }
+    let walk = walkdir::WalkDir::new(path)
+        .follow_links(false)
+        .min_depth(1)
+        .max_depth(max_depth);
+    for next in walk.into_iter().take(max_entries) {
+        if let Err(e) = next {
+            if e.io_error().is_some_and(&refused) {
+                return false;
+            }
+        }
+    }
+    true
+}
+
+/// `allow_guarded_folders` with the read and the record as parameters, so a test can name them.
+fn allow_each(
+    paths: &[String],
+    unopened: &[PathBuf],
+    can_list: impl Fn(&Path) -> bool,
+    mut note: impl FnMut(&Path) -> Option<PathBuf>,
+) -> Vec<PathBuf> {
+    let mut opened = Vec::new();
+    for p in paths.iter().map(PathBuf::from) {
+        if !unopened.contains(&p) || opened.contains(&p) || !can_list(&p) {
+            continue;
+        }
+        if let Some(root) = note(&p) {
+            opened.push(root);
+        }
+    }
+    opened
+}
+
+fn palette_count_with(path: &str, guarded: &[PathBuf], skip: &[PathBuf]) -> Option<usize> {
+    let p = PathBuf::from(path);
+    if crate::core::spotlight::palette_roots(std::slice::from_ref(&p), guarded, skip).is_empty() {
+        return None;
+    }
+    list_folder(path).ok().map(|l| l.entries.len())
+}
+
 /// `read_dir` without the app: the listing, timed, with the failure as a sentence.
 fn list_folder(path: &str) -> CmdResult<DirListing> {
     let started = std::time::Instant::now();
-    let listing = fs::read_dir(Path::new(path)).map_err(|e| read_dir_failed(path, &e))?;
+    // plan 08 D2: a listing on a share or removable drive gives up after `LIST_WAIT`; the
+    // message names the place (`Late`), and the frontend shows it with a way to try again
+    let owned = path.to_string();
+    let listing = workers::guarded("list", path, workers::LIST_WAIT, move || {
+        fs::read_dir(Path::new(&owned))
+    })
+    .map_err(|late| late.to_string())?
+    .map_err(|e| read_dir_failed(path, &e))?;
     let took = started.elapsed();
     if took >= SLOW_READ_DIR {
         log::warn!("slow read_dir: {}ms", took.as_millis());
@@ -66,7 +194,45 @@ fn read_dir_failed(path: &str, err: &std::io::Error) -> String {
 /// Whether a typed path is a file, a folder or nothing — the address bar opens a file.
 #[tauri::command(async)]
 pub fn path_kind(path: String) -> PathKind {
-    fs::path_kind(Path::new(&path))
+    // plan 08 D1: on a share that does not answer in `PROBE_WAIT` the answer is `Dir`, so the
+    // address bar goes on to list it, and the listing's own deadline and message take over
+    let owned = path.clone();
+    workers::guarded("probe", &path, workers::PROBE_WAIT, move || {
+        fs::path_kind(Path::new(&owned))
+    })
+    .unwrap_or(PathKind::Dir)
+}
+
+/// The drive letters mapped to a network share, for the sidebar's Network group (5.3b).
+#[tauri::command(async)]
+pub fn mapped_drives() -> Vec<String> {
+    crate::core::mounts::mapped_letters()
+}
+
+/// Shows the Windows credential box for the share holding `path` and connects (plan 05 5.3d).
+/// `code` is the OS error the listing failed with (5 or 1326). Refuses anything that is not a
+/// real share — a local path or a WSL distro has no password to type.
+#[tauri::command(async)]
+pub fn net_sign_in(
+    window: tauri::WebviewWindow,
+    path: String,
+    code: i32,
+) -> Result<crate::core::net::SignIn, String> {
+    let share = crate::core::net::sign_in_target(&path)
+        .ok_or_else(|| format!("{path}: not a network share that takes a password"))?;
+    if !crate::core::net::wants_credentials(Some(code)) {
+        return Err(format!(
+            "{path}: a user name and password would not fix this"
+        ));
+    }
+    #[cfg(windows)]
+    let owner = window.hwnd().map(|h| h.0 as isize).unwrap_or(0);
+    #[cfg(not(windows))]
+    let owner = {
+        let _ = &window;
+        0isize
+    };
+    crate::core::net::sign_in(&share, owner, code)
 }
 
 /// Open a file with its default app (or a folder in the OS shell).
@@ -220,6 +386,13 @@ pub fn create_folder(dir: String) -> CmdResult<String> {
         .map_err(msg)
 }
 
+/// "Retry as administrator" (plan 05 5.6): the one operation that failed with access denied,
+/// run again in an elevated copy of Trove that does it and exits (`core/elevate.rs`).
+#[tauri::command(async)]
+pub fn retry_elevated(op: crate::core::elevate::ElevatedOp) -> CmdResult<String> {
+    crate::core::elevate::run_elevated(&op)
+}
+
 /// A failed `trash_entries`. Every failure is the plain sentence it always was, except one:
 /// a place with no Recycle Bin arrives as `{ noBin, message }`, so the frontend can offer a
 /// permanent delete instead of guessing from the path (`api/fs.ts` `trashEntries`).
@@ -293,9 +466,152 @@ pub fn delete_entries(paths: Vec<String>) -> CmdResult<()> {
     ops::delete_permanently(&paths).map_err(msg)
 }
 
+/// "Always keep on this device" (`keep`) or "Free up space" for each path (plan 05 5.4). Every
+/// path is tried; the error names the first one that failed and how many more did.
+#[tauri::command(async)]
+pub fn set_cloud_pin(paths: Vec<String>, keep: bool) -> CmdResult<()> {
+    let failed: Vec<&String> = paths
+        .iter()
+        .filter(|p| match ops::set_cloud_pin(Path::new(p), keep) {
+            Ok(()) => false,
+            Err(e) => {
+                log::warn!("set_cloud_pin: {e}");
+                log::debug!("set_cloud_pin {p}: {e}");
+                true
+            }
+        })
+        .collect();
+    cloud_pin_message(&failed, keep).map_or(Ok(()), Err)
+}
+
+/// The OneDrive sidebar row's sync glyph (plan 05 5.4): `None` when `path` is in no sync root.
+#[tauri::command(async)]
+pub fn cloud_sync_status(path: String) -> Option<crate::core::sync_root::SyncStatus> {
+    crate::core::sync_root::sync_status(Path::new(&path))
+}
+
+/// The sentence for the paths `set_cloud_pin` could not change, or `None` when all went.
+fn cloud_pin_message(failed: &[&String], keep: bool) -> Option<String> {
+    let first = failed.first()?;
+    let name = Path::new(first.as_str())
+        .file_name()
+        .map_or_else(|| first.to_string(), |n| n.to_string_lossy().into_owned());
+    let what = if keep {
+        "keep it on this device"
+    } else {
+        "free up its space"
+    };
+    Some(match failed.len() {
+        1 => format!("Trove couldn't {what}: \"{name}\"."),
+        n => format!("Trove couldn't {what}: \"{name}\" and {} more.", n - 1),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn allow_reads_each_unopened_guarded_folder_once_and_records_what_worked() {
+        let desk = PathBuf::from("/Users/x/Desktop");
+        let docs = PathBuf::from("/Users/x/Documents");
+        let music = PathBuf::from("/Users/x/Music");
+        let unopened = [desk.clone(), docs.clone(), music.clone()];
+        let asked = std::cell::RefCell::new(Vec::<PathBuf>::new());
+        let mut noted = Vec::new();
+        let paths: Vec<String> = [
+            "/Users/x/Desktop",
+            "/Users/x/Documents",
+            "/Users/x/Documents", // twice: read once
+            "/Users/x/Music",
+            "/etc",                   // not a guarded folder: never read
+            "/Users/x/Desktop/inner", // inside one: not what Allow opens
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+        let opened = allow_each(
+            &paths,
+            &unopened,
+            |p| {
+                asked.borrow_mut().push(p.to_path_buf());
+                // the person allowed Documents only
+                p == docs.as_path()
+            },
+            |p| {
+                noted.push(p.to_path_buf());
+                Some(p.to_path_buf())
+            },
+        );
+        assert_eq!(opened, std::slice::from_ref(&docs));
+        assert_eq!(noted, std::slice::from_ref(&docs));
+        assert_eq!(*asked.borrow(), [desk, docs, music]);
+        // nothing unopened: nothing read
+        let none = allow_each(&paths, &[], |_| panic!("read"), |_| None);
+        assert!(none.is_empty());
+    }
+
+    /// ⭐ "Don't Allow" on Photos still marked `~/Pictures` opened: the folder itself lists, the
+    /// library inside it is what was refused. A refusal anywhere in the bounded walk = not opened.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_whose_library_inside_was_refused_is_not_opened() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("trove-allow-deep-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let lib = dir.join("Pictures/Photos Library.photoslibrary");
+        std::fs::create_dir_all(lib.join("originals")).unwrap();
+        std::fs::create_dir_all(dir.join("Movies/clips")).unwrap();
+        std::fs::set_permissions(&lib, std::fs::Permissions::from_mode(0o000)).unwrap();
+        // a test run as root reads anything; the refusal cannot be staged then
+        let staged = std::fs::read_dir(&lib).is_err();
+        let refused = |e: &std::io::Error| e.kind() == std::io::ErrorKind::PermissionDenied;
+        if staged {
+            assert!(!access_granted(&dir.join("Pictures"), 3, 4000, refused));
+        }
+        assert!(access_granted(&dir.join("Movies"), 3, 4000, refused));
+        assert!(!access_granted(&dir.join("Nope"), 3, 4000, refused));
+        std::fs::set_permissions(&lib, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn the_palette_preview_never_counts_an_unopened_guarded_folder() {
+        let dir = std::env::temp_dir().join(format!("trove-pcount-{}", std::process::id()));
+        let desk = dir.join("Desktop");
+        std::fs::create_dir_all(desk.join("inner")).unwrap();
+        std::fs::write(desk.join("a.txt"), b"x").unwrap();
+        let path = desk.to_string_lossy().into_owned();
+        let inner = desk.join("inner").to_string_lossy().into_owned();
+        assert_eq!(
+            palette_count_with(&path, std::slice::from_ref(&desk), &[]),
+            None
+        );
+        assert_eq!(
+            palette_count_with(&inner, std::slice::from_ref(&desk), &[]),
+            None
+        );
+        assert_eq!(
+            palette_count_with(&path, &[], std::slice::from_ref(&dir)),
+            None
+        );
+        assert_eq!(palette_count_with(&path, &[], &[]), Some(2));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn cloud_pin_message_names_the_first_failure() {
+        assert_eq!(cloud_pin_message(&[], true), None);
+        let a = r"C:\OneDrive\a.docx".to_string();
+        let b = r"C:\OneDrive\b.docx".to_string();
+        let one = cloud_pin_message(&[&a], true).unwrap();
+        assert!(one.contains("keep it on this device"), "{one}");
+        let two = cloud_pin_message(&[&a, &b], false).unwrap();
+        assert!(
+            two.contains("free up its space") && two.contains("1 more"),
+            "{two}"
+        );
+    }
 
     #[test]
     fn open_url_allows_only_web_and_mail_schemes() {

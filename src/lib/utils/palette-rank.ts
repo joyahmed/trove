@@ -55,6 +55,30 @@ export const matchScore = (title: string, text: string): number => {
   return name.includes(t) ? 1 : 0;
 };
 
+/** What a keyword-only hit is worth: the bottom rung, so a row whose title matches always wins. */
+export const MATCH_KEYWORD = 1;
+
+/**
+ * Whether a row's title plus its `keywords` answer `text` word by word: every typed word must
+ * start some word of either, in any order. ⛔ Without it the actions' keywords were dead text:
+ * `tab set` did not find **Save tabs as…** (its title does not contain "tab set", and only the
+ * title was matched), and `preferences` never found Open settings. Worth `MATCH_KEYWORD` only:
+ * a synonym must not lift an action over a file or app whose own name matches better.
+ */
+export const keywordScore = (title: string, keywords: string, text: string): number => {
+  const typed = text.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!typed.length) return 0;
+  const words = `${title} ${keywords}`.toLowerCase().split(/[\s\-_.…,·]+/);
+  return typed.every((t) => words.some((w) => w.startsWith(t))) ? MATCH_KEYWORD : 0;
+};
+
+/** A row's score for `text`: its title's rung, or the keyword rung when only its synonyms match. */
+const scoreOf = (r: PaletteResult, text: string): number => {
+  if (r.matched) return MATCH_EXACT;
+  const title = matchScore(r.title, text);
+  return title || !r.keywords ? title : keywordScore(r.title, r.keywords, text);
+};
+
 /**
  * Matches only, best first; the input order breaks remaining ties (sources list newest first).
  * The same thing offered by two sources (a recent folder that is also a place) is listed
@@ -74,7 +98,7 @@ export const matchScore = (title: string, text: string): number => {
 export const rank = (results: PaletteResult[], text: string): PaletteResult[] => {
   const seen: Record<string, true> = {};
   return results
-    .map((r, i) => ({ r, i, score: r.matched ? MATCH_EXACT : matchScore(r.title, text) }))
+    .map((r, i) => ({ r, i, score: scoreOf(r, text) }))
     .filter((x) => x.score > 0)
     .sort(
       (a, b) =>

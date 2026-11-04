@@ -5,6 +5,7 @@ import { tabs } from './tabs.svelte';
 import { pathLocation } from '$lib/utils/location';
 import { renameEntry } from '$lib/api/fs';
 import { listing } from './listing.svelte';
+import { settings } from './settings.svelte';
 
 vi.mock('$lib/api/fs', () => ({
   readDir: vi.fn(async (path: string) => ({ path, entries: [] })),
@@ -53,6 +54,32 @@ describe('actions.commitRename', () => {
     selection.clear();
     vi.spyOn(tabs.active, 'reload').mockResolvedValue();
     expect(listing.rows.map((e) => e.path)).toEqual([OLD]);
+  });
+
+  it('with extensions hidden the box holds the base name and the extension is kept', async () => {
+    settings.showExtensions = false;
+    try {
+      actions.startRename(OLD);
+      expect(actions.draft).toBe('a');
+      expect(actions.renameHidesExtension).toBe(true);
+      actions.draft = 'notes';
+      await actions.commitRename();
+      expect(renameEntry).toHaveBeenCalledWith(OLD, 'notes.txt');
+      // unchanged base name: no rename at all
+      vi.mocked(renameEntry).mockClear();
+      actions.startRename(OLD);
+      await actions.commitRename();
+      expect(renameEntry).not.toHaveBeenCalled();
+    } finally {
+      settings.showExtensions = true;
+    }
+  });
+
+  it('with extensions shown the box holds the whole name', () => {
+    actions.startRename(OLD);
+    expect(actions.draft).toBe('a.txt');
+    expect(actions.renameHidesExtension).toBe(false);
+    actions.cancelRename();
   });
 
   it('an emptied name is a cancel, not a rename to nothing', async () => {

@@ -132,3 +132,22 @@ describe('list status: searching', () => {
     expect(useListStatus().searching).toBeNull();
   });
 });
+
+describe('list status: a slow or silent network share', () => {
+  it('reports the server being reached and no error', () => {
+    tabs.active.slowServer = 'nas';
+    const s = useListStatus();
+    expect(s.reaching).toBe('nas');
+    expect(s.error).toBeNull();
+    tabs.active.slowServer = null;
+    expect(s.reaching).toBeNull();
+  });
+
+  it('offers Try again only for the did-not-answer error', () => {
+    const s = useListStatus();
+    tabs.active.error = 'Access is denied.';
+    expect(s.unreachable).toBe(false);
+    tabs.active.error = 'Z:' + String.fromCharCode(92) + ' did not answer in 10 s';
+    expect(s.unreachable).toBe(true);
+  });
+});

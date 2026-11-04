@@ -37,7 +37,7 @@ const sameProgramAndArgs = (a: Comparable, b: Comparable) =>
   stemOf(a.program) === stemOf(b.program) && a.args.trim() === b.args.trim();
 
 /** …and the same scope. Only then would adding the detected entry duplicate a row you have. */
-const sameCommand = (a: Comparable, b: Comparable) =>
+export const sameCommand = (a: Comparable, b: Comparable) =>
   sameProgramAndArgs(a, b) && scopeKey(a.scope) === scopeKey(b.scope);
 
 /** One detected entry as the strip offers it, with what the person already has said out loud. */
@@ -187,6 +187,29 @@ class CustomizeState {
       args: found.args,
       scope: [...found.scope],
     });
+  }
+
+  /** Is this detected app on the person's list? Same comparison as `suggestions`, not the id. */
+  has(found: DetectedApp): boolean {
+    return settings.customCommands.some((c) => c.id === found.id || sameCommand(c, found));
+  }
+
+  /**
+   * True when the app reads ON only because of a command the person typed themselves: it matches
+   * by program, args and scope but does not carry the detected id. That id is the marker of "added
+   * from detection" (`addDetected` keeps it; a typed command gets a random `cmd-…` id).
+   */
+  isHandTyped(found: DetectedApp): boolean {
+    return this.has(found) && !settings.customCommands.some((c) => c.id === found.id);
+  }
+
+  /**
+   * Take a detected app off the list again: only the entry `addDetected` added (the detected id).
+   * A command the person typed is never removed here, even if it reads as the same app; they
+   * delete that one in Customize. The Settings "Apps" toggle is the only caller.
+   */
+  removeDetected(found: DetectedApp) {
+    settings.customCommands = settings.customCommands.filter((c) => c.id !== found.id);
   }
 
   close() {

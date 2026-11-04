@@ -9,7 +9,6 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, LogicalSize, Manager, PhysicalPosition, Window, WindowEvent};
 use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut, ShortcutEvent, ShortcutState};
 
-use crate::core::fs::FileEntry;
 use crate::core::spotlight::{self, AppEntry};
 
 /// The palette window's label in `tauri.conf.json`.
@@ -602,7 +601,7 @@ pub fn launch_app(aumid: String) -> Result<(), String> {
 }
 
 /// A bounded name search under `roots`: at most `max_results`, three levels deep, within
-/// `budget_ms`. `(async)`: off the main thread, so the webview never waits on the walk.
+/// `budget_ms`, and the unopened guarded folders it left out (Mac). `(async)`: off the main thread, so the webview never waits on the walk.
 #[tauri::command(async)]
 pub fn spotlight_files(
     text: String,
@@ -610,7 +609,7 @@ pub fn spotlight_files(
     max_results: usize,
     budget_ms: u64,
     max_depth: Option<usize>,
-) -> Vec<FileEntry> {
+) -> spotlight::FoundFiles {
     let roots: Vec<PathBuf> = roots.into_iter().map(PathBuf::from).collect();
     spotlight::find_files(
         &text,

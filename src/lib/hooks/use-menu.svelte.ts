@@ -333,11 +333,35 @@ export const useMenu = () => {
     if (lastInput === 'key') focusFirst(el);
     else el.focus({ preventScroll: true });
 
+    // Rows that arrive after the menu opened (Windows' own items, plan 08 D.1) make it taller:
+    // keep the top where it is unless the bottom would leave the screen, then move up or cap
+    // it, by the same rule as the first placement. A capped panel already scrolls; done.
+    let placedHeight = el.offsetHeight;
+    const regrow = () => {
+      if (el.style.maxHeight || el.offsetHeight <= placedHeight) return;
+      placedHeight = el.offsetHeight;
+      const q = placeMenu({
+        x: position.x,
+        y: position.y,
+        width: el.offsetWidth,
+        height: placedHeight,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight,
+      });
+      el.style.top = `${q.top}px`;
+      if (q.maxHeight !== undefined) capPanel(el, q.maxHeight);
+      position = { x: position.x, y: q.top };
+    };
+    // absent under jsdom; a test menu never grows
+    const grown = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(regrow);
+    grown?.observe(el);
+
     document.addEventListener('pointerdown', onPointerDown, true);
     // window, capture: the first node any key reaches, so nothing in the page sees it first
     window.addEventListener('keydown', onKey, true);
     return {
       destroy() {
+        grown?.disconnect();
         document.removeEventListener('pointerdown', onPointerDown, true);
         window.removeEventListener('keydown', onKey, true);
       },

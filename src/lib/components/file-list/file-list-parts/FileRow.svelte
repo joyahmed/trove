@@ -1,12 +1,14 @@
-<!-- Details view: one 28 px row, cells at the header's widths. -->
+<!-- Details view: one 28 px row (22 in Compact view), cells at the header's widths. -->
 <script lang="ts">
   import { rowId } from '$lib/utils/row-id';
   import type { FileEntry } from '$lib/types/fs';
   import { dropPathOf } from '$lib/utils/app-bundle';
   import { columns } from '$lib/state/columns.svelte';
   import { listing } from '$lib/state/listing.svelte';
+  import { settings } from '$lib/state/settings.svelte';
   import { useInfotip } from '$lib/hooks/use-infotip.svelte';
   import EntryIcon from '$lib/components/ui/EntryIcon.svelte';
+  import ItemCheck from './ItemCheck.svelte';
   import Infotip from './Infotip.svelte';
   import RenameBox from './RenameBox.svelte';
 
@@ -87,12 +89,13 @@
       role="gridcell"
     >
       {#if col.key === 'name'}
+        <ItemCheck {selected} />
         <EntryIcon {entry} size={16} />
       {/if}
       {#if renaming && col.key === 'name'}
         <RenameBox />
       {:else}
-        <span class="truncate">{col.cell(entry)}</span>
+        <span class="truncate">{col.cell(entry, settings)}</span>
       {/if}
     </span>
   {/each}

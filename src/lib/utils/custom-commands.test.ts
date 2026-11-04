@@ -64,6 +64,19 @@ describe('expandArgs', () => {
     ]);
   });
 
+  // plan 09 B.2: DevGo scans ~/projects inside the distro; Trove hands it the same folder by its
+  // Linux name, so DevGo matches on `$HOME/projects/...` and never parses a UNC path.
+  it('a project under \\\\wsl.localhost reaches DevGo as its ~/projects path', () => {
+    const p = '\\\\wsl.localhost\\Ubuntu-26.04\\home\\alex\\projects\\01_tauri\\my app';
+    expect(expandArgs('--distro %distro% %linuxpath%', { path: p, paths: [p] })).toEqual([
+      '--distro',
+      'Ubuntu-26.04',
+      '/home/alex/projects/01_tauri/my app',
+    ]);
+    const old = '\\\\wsl$\\Ubuntu-26.04\\home\\alex\\projects\\03_ai';
+    expect(linuxPathOf(old)).toBe('/home/alex/projects/03_ai');
+  });
+
   it('a WSL path gives the distro and the Linux path', () => {
     const args = expandArgs('--remote wsl+%distro% %linuxpath%', {
       path: '\\\\wsl.localhost\\Ubuntu\\home\\alex\\proj',

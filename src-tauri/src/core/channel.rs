@@ -60,7 +60,29 @@ impl Channel {
     pub const fn offers_default_handler(self) -> bool {
         matches!(self, Channel::Direct)
     }
+
+    /// Whether this channel may update itself (plan 22.5). A store updates its own builds, so
+    /// only the GitHub downloads do.
+    pub const fn self_updates(self) -> bool {
+        matches!(self, Channel::Direct)
+    }
 }
+
+/// Whether this build carries the updater: the cargo feature `updater` (off by default) AND a
+/// channel that self-updates. Settings and the status bar show nothing about updates when false.
+pub const fn updater_on(feature: bool, channel: Channel) -> bool {
+    feature && channel.self_updates()
+}
+
+/// This build's answer to [`updater_on`].
+pub const UPDATER: bool = updater_on(cfg!(feature = "updater"), CURRENT);
+
+// ⛔ A store build never self-updates (plan 22 rules): `TROVE_CHANNEL=msstore` with
+// `--features updater` is refused at compile time rather than shipping a plugin the Store forbids.
+const _: () = assert!(
+    !(cfg!(feature = "updater") && !CURRENT.self_updates()),
+    "the updater feature is for the GitHub builds only; build msstore without --features updater"
+);
 
 /// This build's channel. An unknown `TROVE_CHANNEL` is a compile error.
 pub const CURRENT: Channel = match Channel::parse(option_env!("TROVE_CHANNEL")) {
@@ -93,6 +115,34 @@ mod tests {
         assert!(Channel::Direct.offers_default_handler());
         assert!(Channel::Msstore.uses_startup_task());
         assert!(!Channel::Msstore.offers_default_handler());
+    }
+
+    #[test]
+    fn only_the_direct_channel_with_the_feature_self_updates() {
+        assert!(Channel::Direct.self_updates());
+        assert!(!Channel::Msstore.self_updates());
+        assert!(updater_on(true, Channel::Direct));
+        assert!(!updater_on(false, Channel::Direct));
+        assert!(!updater_on(true, Channel::Msstore));
+        assert!(!updater_on(false, Channel::Msstore));
+        assert_eq!(
+            UPDATER,
+            cfg!(feature = "updater") && CURRENT == Channel::Direct
+        );
+    }
+
+    /// The MSIX config never asks for updater bundles: the Store updates that build.
+    #[test]
+    fn msix_config_makes_no_updater_artifacts() {
+        let raw =
+            std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/tauri.msix.conf.json"))
+                .expect("tauri.msix.conf.json");
+        let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+        assert_eq!(
+            v["bundle"]["createUpdaterArtifacts"],
+            serde_json::Value::Bool(false)
+        );
+        assert!(v.get("plugins").and_then(|p| p.get("updater")).is_none());
     }
 
     #[test]

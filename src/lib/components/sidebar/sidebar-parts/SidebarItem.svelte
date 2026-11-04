@@ -34,7 +34,13 @@
   // the row truncates a long name, so the tooltip is the one place it reads in full: name, drive
   // letter, then how full it is ("Video Archive (V:) — 366 GB free of 931 GB")
   const tip = $derived(
-    [item.tag ? `${item.label} (${item.tag})` : item.label, item.usage?.caption]
+    [
+      item.tag ? `${item.label} (${item.tag})` : item.label,
+      item.usage?.caption,
+      item.status?.label,
+      item.unreachable ? 'did not answer lately' : undefined,
+      item.running ? 'running' : undefined,
+    ]
       .filter(Boolean)
       .join(' — '),
   );
@@ -53,11 +59,12 @@
       ? 'pl-8'
       : 'pl-3'} {active || dragover ? 'bg-subtle-selected' : ''} {dragover
       ? 'outline-accent outline-1'
-      : ''}"
+      : ''} {item.unreachable ? 'text-text-disabled' : ''}"
     data-drop={item.location?.kind === 'path' ? item.location.path : undefined}
     data-drop-kind="sidebar"
     data-mac="sidebar-row"
     data-active={active}
+    data-unreachable={item.unreachable || undefined}
     title={tip}
     disabled={!item.location && !item.run}
     onclick={onselect}
@@ -101,6 +108,19 @@
       <span class="flex min-w-0 items-baseline gap-2 {item.usage ? 'leading-4' : ''}">
         <span class="min-w-0 flex-1 truncate">{item.label}</span>
         {#if item.tag}<span class="text-text-secondary shrink-0 text-xs">{item.tag}</span>{/if}
+        {#if item.running}
+          <span
+            class="bg-running size-1.5 shrink-0 self-center rounded-full"
+            data-running
+            aria-hidden="true"
+          ></span>
+        {/if}
+        {#if item.status}<Glyph
+            name={item.status.glyph}
+            size={12}
+            color={item.status.color}
+            class="self-center"
+          />{/if}
       </span>
       {#if item.usage}
         <span class="bg-text-secondary/15 mt-[3px] h-[2px] overflow-hidden rounded-full">

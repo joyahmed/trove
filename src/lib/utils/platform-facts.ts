@@ -8,6 +8,10 @@ export interface TrovePlatform {
   thisPcLabel: string;
   /** which store this build ships through (`core/channel.rs`); absent in an older build */
   channel?: 'direct' | 'msstore';
+  /** whether this build updates itself (`core/channel.rs` UPDATER, plan 22.5); absent = no */
+  updater?: boolean;
+  /** whether this build reads RAR (cargo feature `rar`, plan 16 phase 5); absent = no */
+  rar?: boolean;
 }
 
 declare global {

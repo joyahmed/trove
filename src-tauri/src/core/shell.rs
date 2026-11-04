@@ -27,6 +27,11 @@ pub fn platform_init_script() -> String {
         "thisPcLabel": THIS_PC_LABEL,
         // which store this build ships through (plan 22): Settings hides what the store breaks
         "channel": crate::core::channel::CURRENT.as_str(),
+        // whether this build updates itself (plan 22.5): false hides every update line
+        "updater": crate::core::channel::UPDATER,
+        // whether this build reads RAR (cargo feature `rar`, plan 16 phase 5): false keeps every
+        // RAR row off, so a distro build without UnRAR never offers what it cannot do
+        "rar": cfg!(feature = "rar"),
     });
     format!("window.__TROVE_PLATFORM__ = Object.freeze({facts});")
 }
@@ -634,6 +639,7 @@ mod tests {
             "\"channel\":\"{}\"",
             crate::core::channel::CURRENT.as_str()
         )));
+        assert!(script.contains(&format!("\"updater\":{}", crate::core::channel::UPDATER)));
         #[cfg(windows)]
         assert_eq!(THIS_PC_LABEL, "This PC");
         #[cfg(target_os = "macos")]

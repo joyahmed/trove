@@ -24,8 +24,9 @@
 //! Previews get a pool of their own: a few workers, so one long video read never holds a
 //! worker an icon is waiting on, and a burst of `Range` requests cannot become a thread each.
 
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 type Job = Box<dyn FnOnce() + Send + 'static>;
 type SlowJob = Box<dyn FnOnce(Fate) + Send + 'static>;
@@ -205,12 +206,159 @@ pub fn spawn_preview(job: impl FnOnce() + Send + 'static) {
     preview_pool().quick(Box::new(job));
 }
 
+// ---- Deadlines (plan 08 Phase D: nothing blocks the UI, ever) ----------------------------
+//
+// ⛔ A universal policy, not a per-call-site fix: every probe, listing, stat or icon request on
+// a `Reach::Remote` path (UNC share, mapped network letter, removable or optical drive) runs
+// through `guarded`. The work moves to a thread of its own and the caller waits at most the
+// deadline. Windows cannot cancel a call stuck in the SMB redirector, so a late thread is left
+// to finish on its own; what the deadline buys is that nobody waits for it. WSL paths
+// (`Reach::Wsl`) and local disks run inline, as before: no thread, no deadline.
+
+/// A stat, a path-kind probe or one icon on a remote place.
+pub const PROBE_WAIT: Duration = Duration::from_secs(3);
+
+/// One folder listing on a remote place (plan 05 5.3c: 10 s).
+pub const LIST_WAIT: Duration = Duration::from_secs(10);
+
+/// After a place missed a deadline, icon requests on it are refused at once for this long
+/// instead of each starting a thread that would hang too. A listing always tries again.
+const DEAD_FOR: Duration = Duration::from_secs(30);
+
+/// A remote place that did not answer in time.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Late {
+    /// `\\server\share`, or the drive root, that did not answer.
+    pub place: String,
+    /// How long the caller waited.
+    pub waited: Duration,
+}
+
+/// The words the frontend matches (`isUnreachableError` in `src/lib/utils/network.ts`); keep
+/// the two in step.
+pub const LATE_MARK: &str = "did not answer in";
+
+impl std::fmt::Display for Late {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let secs = self.waited.as_secs().max(1);
+        write!(f, "{} {LATE_MARK} {secs} s", self.place)
+    }
+}
+
+/// The place a deadline is kept per: `\\server\share` for UNC, `X:\` for a letter.
+pub fn place_of(path: &str) -> String {
+    if let Some(root) = crate::core::mounts::share_root(path) {
+        return root;
+    }
+    let mut chars = path.chars();
+    match (chars.next(), chars.next()) {
+        (Some(l), Some(':')) => format!("{}:\\", l.to_ascii_uppercase()),
+        _ => path.to_string(),
+    }
+}
+
+/// Places that missed a deadline, and when.
+fn lock_dead() -> std::sync::MutexGuard<'static, HashMap<String, Instant>> {
+    static DEAD: OnceLock<Mutex<HashMap<String, Instant>>> = OnceLock::new();
+    DEAD.get_or_init(Mutex::default)
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
+/// Whether `place` missed a deadline within `DEAD_FOR`.
+pub fn recently_dead(place: &str) -> bool {
+    lock_dead()
+        .get(place)
+        .is_some_and(|at| at.elapsed() < DEAD_FOR)
+}
+
+/// Runs `job` on its own thread and waits at most `wait` for it. `what` and `path` name the
+/// work for the log. ⚠️ Every miss is a `warn!` with the place (share or drive) and the milliseconds (plan 08 D5):
+/// a deadline that fires silently is how "the UI froze on a share" regresses unnoticed.
+pub fn within<T: Send + 'static>(
+    what: &'static str,
+    path: &str,
+    wait: Duration,
+    job: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, Late> {
+    let place = place_of(path);
+    let started = Instant::now();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let late_place = place.clone();
+    let spawned = std::thread::Builder::new()
+        .name(format!("deadline-{what}"))
+        .spawn(move || {
+            let out = job();
+            // it answered, so it is not dead (a late error answer counts: the server is up)
+            lock_dead().remove(&late_place);
+            if tx.send(out).is_err() {
+                // the caller gave up on us; say when the place did answer
+                let ms = started.elapsed().as_millis();
+                log::warn!("deadline: {what} on {late_place} answered late, after {ms} ms");
+            }
+        });
+    if let Err(e) = spawned {
+        log::warn!("deadline: could not start a thread for {what} ({e}); refused");
+        return Err(Late {
+            place,
+            waited: Duration::ZERO,
+        });
+    }
+    match rx.recv_timeout(wait) {
+        Ok(out) => Ok(out),
+        Err(_) => {
+            let ms = started.elapsed().as_millis();
+            // the share or drive only at warn: a full path is personal (plan 15 D.8.2)
+            log::warn!("deadline: {what} on {place} gave up after {ms} ms");
+            log::debug!("deadline: {what} {path} gave up after {ms} ms");
+            lock_dead().insert(place.clone(), Instant::now());
+            Err(Late {
+                place,
+                waited: wait,
+            })
+        }
+    }
+}
+
+/// `job` inline for a local or WSL path; on a remote one, `within` the deadline.
+pub fn guarded<T: Send + 'static>(
+    what: &'static str,
+    path: &str,
+    wait: Duration,
+    job: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, Late> {
+    match crate::core::mounts::reach_of(path) {
+        crate::core::mounts::Reach::Remote => within(what, path, wait, job),
+        _ => Ok(job()),
+    }
+}
+
+/// `guarded`, but refused at once while the place is `recently_dead`: for the many small
+/// requests (icons) a listing fires, so a dead share costs one thread, not one per row.
+pub fn guarded_unless_dead<T: Send + 'static>(
+    what: &'static str,
+    path: &str,
+    wait: Duration,
+    job: impl FnOnce() -> T + Send + 'static,
+) -> Result<T, Late> {
+    if crate::core::mounts::reach_of(path) == crate::core::mounts::Reach::Remote {
+        let place = place_of(path);
+        if recently_dead(&place) {
+            log::debug!("deadline: {what} on {place} skipped, missed a deadline recently");
+            return Err(Late {
+                place,
+                waited: Duration::ZERO,
+            });
+        }
+    }
+    guarded(what, path, wait, job)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::mpsc::channel;
-    use std::time::Duration;
 
     #[test]
     fn every_job_runs_and_more_jobs_than_workers_is_fine() {
@@ -382,5 +530,74 @@ mod tests {
             }),
         );
         assert_eq!(rx.recv_timeout(Duration::from_secs(5)), Ok(Fate::Run));
+    }
+
+    #[test]
+    fn within_answers_in_time_and_gives_up_on_a_slow_job() {
+        assert_eq!(
+            within("test", r"\\h\s", Duration::from_secs(5), || 7),
+            Ok(7)
+        );
+        let started = Instant::now();
+        let slow = within(
+            "test",
+            r"\\slow-host\share\x",
+            Duration::from_millis(50),
+            || {
+                std::thread::sleep(Duration::from_millis(400));
+            },
+        );
+        let late = slow.unwrap_err();
+        assert!(started.elapsed() < Duration::from_millis(300));
+        assert_eq!(late.place, r"\\slow-host\share");
+        assert_eq!(late.to_string(), r"\\slow-host\share did not answer in 1 s");
+        assert!(recently_dead(r"\\slow-host\share"));
+        // the late job finishing clears the mark: the place answered after all
+        std::thread::sleep(Duration::from_millis(800));
+        assert!(!recently_dead(r"\\slow-host\share"));
+    }
+
+    #[test]
+    fn local_and_wsl_paths_run_inline_with_no_deadline() {
+        let me = std::thread::current().id();
+        for p in [r"\\wsl.localhost\Ubuntu\home", r"\\wsl$\Ubuntu", "/home/x"] {
+            let ran_on = guarded("test", p, Duration::ZERO, move || {
+                std::thread::current().id()
+            });
+            assert_eq!(ran_on, Ok(me), "{p}");
+        }
+    }
+
+    #[test]
+    fn a_dead_place_refuses_icons_but_not_listings() {
+        lock_dead().insert(r"\\gone\share".into(), Instant::now());
+        let icon = guarded_unless_dead("icon", r"\\gone\share\a.png", PROBE_WAIT, || 1);
+        assert_eq!(icon.unwrap_err().waited, Duration::ZERO);
+        assert_eq!(guarded("list", r"\\gone\share", PROBE_WAIT, || 2), Ok(2));
+        assert!(!recently_dead(r"\\gone\share"));
+    }
+
+    #[test]
+    fn places() {
+        assert_eq!(place_of(r"\\nas\media\film"), r"\\nas\media");
+        assert_eq!(place_of(r"z:\work\a"), r"Z:\");
+    }
+
+    /// The real thing: an address nobody answers on (10.255.255.1 is never routed to a host).
+    /// Either Windows says "network path not found" quickly, or the deadline cuts the wait;
+    /// either way the caller is back within the deadline plus scheduling slack.
+    #[cfg(windows)]
+    #[test]
+    fn an_unreachable_share_never_holds_the_caller() {
+        let started = Instant::now();
+        let out = guarded("list", r"\\10.255.255.1\x", Duration::from_secs(2), || {
+            std::fs::read_dir(r"\\10.255.255.1\x").map(|_| ())
+        });
+        let took = started.elapsed();
+        assert!(took < Duration::from_millis(2_800), "{took:?}");
+        match out {
+            Err(late) => assert_eq!(late.place, r"\\10.255.255.1\x"),
+            Ok(listing) => assert!(listing.is_err()),
+        }
     }
 }

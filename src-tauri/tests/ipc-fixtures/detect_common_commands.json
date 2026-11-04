@@ -1,0 +1,76 @@
+[
+  [
+    {
+      "args": "\"%1\"",
+      "certain": true,
+      "id": "code",
+      "label": "VS Code",
+      "program": "code",
+      "scope": [
+        "file",
+        "folder"
+      ],
+      "source": "app-paths"
+    },
+    {
+      "args": "\"%1\"",
+      "certain": true,
+      "id": "code",
+      "label": "VS Code",
+      "program": "code",
+      "scope": [
+        "file",
+        "folder"
+      ],
+      "source": "start-menu"
+    },
+    {
+      "args": "\"%1\"",
+      "certain": true,
+      "id": "code",
+      "label": "VS Code",
+      "program": "code",
+      "scope": [
+        "file",
+        "folder"
+      ],
+      "source": "path"
+    },
+    {
+      "args": "\"%1\"",
+      "certain": true,
+      "id": "code",
+      "label": "VS Code",
+      "program": "code",
+      "scope": [
+        "file",
+        "folder"
+      ],
+      "source": "known-dir"
+    },
+    {
+      "args": "\"%1\"",
+      "certain": true,
+      "id": "code",
+      "label": "VS Code",
+      "program": "code",
+      "scope": [
+        "file",
+        "folder"
+      ],
+      "source": "wsl-distro"
+    },
+    {
+      "args": "\"%1\"",
+      "certain": true,
+      "id": "code",
+      "label": "VS Code",
+      "program": "code",
+      "scope": [
+        "file",
+        "folder"
+      ],
+      "source": "desktop-entry"
+    }
+  ]
+]

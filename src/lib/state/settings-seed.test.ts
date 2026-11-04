@@ -31,6 +31,22 @@ describe('custom command seeding', () => {
     await settings.load();
     expect(settings.customCommands).toHaveLength(0);
   });
+
+  it('an old file with detected-id and hand-typed commands keeps every one, unchanged', async () => {
+    const cmds = [
+      {
+        id: 'detected-code',
+        label: 'Open with Code',
+        program: 'code',
+        args: '%path%',
+        scope: ['file'],
+      },
+      { id: 'cmd-abc', label: 'Mine', program: 'code', args: '%path%', scope: ['file'] },
+    ];
+    stored.value = { view: 'details', customCommands: cmds };
+    await settings.load();
+    expect(settings.customCommands).toEqual(cmds);
+  });
 });
 
 describe('custom command seeding off Windows', () => {

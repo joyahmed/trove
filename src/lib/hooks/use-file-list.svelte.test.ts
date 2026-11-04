@@ -545,3 +545,39 @@ describe('Space toggles the focused item (Mac: Ctrl+Space)', () => {
     }
   });
 });
+
+describe('Escape in search results (real-app click test, 2026-11-04)', () => {
+  beforeEach(() => {
+    tabs.active.location = pathLocation('C:\\scratch');
+    tabs.active.entries = [entry(A), entry(B)];
+    selection.clear();
+    selection.click(A, { ctrl: false, shift: false }, [A, B]);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('the first Escape drops the selection, the second closes the results', async () => {
+    const { search } = await import('$lib/state/search.svelte');
+    search.active = true;
+    const clear = vi.spyOn(search, 'clear').mockImplementation(() => {
+      search.active = false;
+    });
+    press('Escape');
+    expect(selection.count).toBe(0);
+    expect(clear).not.toHaveBeenCalled();
+    press('Escape');
+    expect(clear).toHaveBeenCalledTimes(1);
+    expect(search.active).toBe(false);
+  });
+
+  it('in a plain folder Escape only drops the selection', async () => {
+    const { search } = await import('$lib/state/search.svelte');
+    search.active = false;
+    const clear = vi.spyOn(search, 'clear');
+    press('Escape');
+    press('Escape');
+    expect(selection.count).toBe(0);
+    expect(clear).not.toHaveBeenCalled();
+  });
+});

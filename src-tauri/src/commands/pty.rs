@@ -1,5 +1,6 @@
 //! The terminal pane's sessions. Output travels back on the `Channel` the frontend hands to
-//! `pty_spawn` (one per session, no event name to collide on); the exit is one event.
+//! `pty_spawn` (one per session, no event name to collide on); the exit is one event, and the
+//! shell's own folder report (`pty:cwd`, plan 08 E1) another.
 //!
 //! ⛔ **One window, one shell — and the backend is what holds it that way.** The pane is per
 //! window (`src/lib/state/terminal.svelte.ts`), and the frontend used to be the only thing
@@ -36,6 +37,17 @@ pub const EXIT_EVENT: &str = "pty:exit";
 pub struct PtyExit {
     pub session_id: u64,
     pub code: Option<u32>,
+}
+
+/// Emitted when a session's shell reports a new folder (OSC 7 / OSC 9;9) that exists; payload
+/// `PtyCwd`. The frontend moves the listing there when the pane follows the folder.
+pub const CWD_EVENT: &str = "pty:cwd";
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PtyCwd {
+    pub session_id: u64,
+    pub path: String,
 }
 
 static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
@@ -203,13 +215,17 @@ pub fn pty_spawn(
     let session_id = NEXT_SESSION.fetch_add(1, Ordering::Relaxed);
     // Spawn and insert under one lock: a shell that dies at once would otherwise have its exit
     // handler remove the entry before it was inserted, leaving the console open for ever.
+    let cwd_app = app.clone();
     SESSIONS.with(|s| {
-        let session = PtySession::spawn(
+        let session = PtySession::spawn_with_cwd(
             cmd,
             cols,
             rows,
             move |chunk| {
                 let _ = on_output.send(chunk);
+            },
+            move |path| {
+                let _ = cwd_app.emit(CWD_EVENT, PtyCwd { session_id, path });
             },
             move |code| {
                 // dropping the session closes the console and ends the output stream

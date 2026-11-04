@@ -1,0 +1,32 @@
+[
+  [
+    {
+      "command": "x \"%1\"",
+      "icon": null,
+      "key": "open",
+      "label": "Open",
+      "scope": "directory"
+    },
+    {
+      "command": "x \"%1\"",
+      "icon": null,
+      "key": "open",
+      "label": "Open",
+      "scope": "directory-background"
+    },
+    {
+      "command": "x \"%1\"",
+      "icon": null,
+      "key": "open",
+      "label": "Open",
+      "scope": "file"
+    },
+    {
+      "command": "x \"%1\"",
+      "icon": null,
+      "key": "open",
+      "label": "Open",
+      "scope": "drive"
+    }
+  ]
+]

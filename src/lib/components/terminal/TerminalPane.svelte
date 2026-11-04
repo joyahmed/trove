@@ -16,7 +16,7 @@
   <span class="truncate" title={pane.path}>{pane.folderLabel}</span>
   {#if pane.status}<span class="text-text-secondary truncate">{pane.status}</span>{/if}
   <div class="flex-1"></div>
-  <label class="flex items-center gap-1.5">
+  <label class="flex items-center gap-1.5" title={pane.followNote}>
     <input type="checkbox" bind:checked={pane.follow} />
     Follow folder
   </label>

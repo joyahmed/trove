@@ -14,9 +14,11 @@ import type { KnownFolderKey } from '$lib/types/shell';
 import type { CommandScope, CustomCommand } from '$lib/types/shell-verbs';
 import { seedCommandsFor } from '$lib/utils/custom-commands';
 import { sanitizeFolderViews, type FolderView } from '$lib/utils/folder-views';
+import { sanitizeTabSets, type TabSet } from '$lib/utils/tab-sets';
 import { cleanColumnOrder, insertColumn } from '$lib/utils/column-order';
 import { toChoice, type ComingFrom } from '$lib/state/coming-from.svelte';
 import { defaultSpotlightHotkey } from '$lib/utils/hotkeys';
+import { sanitizeOverrides, toStoredOverrides } from '$lib/utils/chord-overrides';
 
 /**
  * How a folder is shown. Explorer's views (`utils/view-steps` orders them): `grid` is Medium /
@@ -116,8 +118,14 @@ export interface Settings {
    * here is shown with. Capped at `MAX_FOLDER_VIEWS`; see `utils/folder-views`.
    */
   folderViews: FolderView[];
+  /** saved, named tab sets (plan 08 F3), newest first; see `utils/tab-sets` */
+  tabSets: TabSet[];
   /** the Preview pane is the open right-side pane (Details stays per session) */
   previewOpen: boolean;
+  /** the palette's preview pane beside its results (plan 04 4.4): Alt+→ shows it, Alt+← hides it */
+  palettePreview: boolean;
+  /** its width in px, dragged at its left edge; `PALETTE_PREVIEW_WIDTH` bounds it */
+  palettePreviewWidth: number;
   /** double-click a zip / 7z / tar opens it inside Trove, not in another app */
   archivesOpenInside: boolean;
   /** "I'm coming from": the words and the extra shortcut set; 'native' = the OS Trove runs on */
@@ -130,6 +138,21 @@ export interface Settings {
   indexDrivesOff: string[];
   /** whole folders the index skips, on top of its built-ins (node_modules, .git, the Bin …) */
   indexSkipFolders: string[];
+  /** Explorer's Navigation pane: the sidebar shows; off gives its width to the file list */
+  navPane: boolean;
+  /** Explorer's Item check boxes: a box before each name; clicking it toggles that item like Ctrl+click */
+  itemCheckboxes: boolean;
+  /** Explorer's Compact view: shorter details rows (22 px, 20 on a Mac) — the --spacing-row token */
+  compactView: boolean;
+  /** names show their extension (report.pdf); off shows report, as Explorer's default does */
+  showExtensions: boolean;
+  /**
+   * Plan 08 A3: the person's own chord per palette action id, written as the window table writes
+   * chords (`utils/chord-overrides`). In memory ⌘ is `Ctrl`; `snapshot` (the file) writes it as
+   * `CmdOrCtrl`, and `sanitize` reads either back. An action not listed keeps its "I'm coming from" chord;
+   * `data/shortcut-overrides` `effectiveChord` is the one place that decides.
+   */
+  shortcutOverrides: Record<string, string>;
 }
 
 const KNOWN_FOLDER_KEYS: KnownFolderKey[] = [
@@ -210,13 +233,21 @@ const DEFAULTS: Settings = {
   zoom: 1,
   customCommands: [],
   folderViews: [],
+  tabSets: [],
   previewOpen: false,
+  palettePreview: true,
+  palettePreviewWidth: 320,
   archivesOpenInside: true,
   comingFrom: 'native',
   folderSizes: 'local',
   indexOn: true,
   indexDrivesOff: [],
   indexSkipFolders: [],
+  navPane: true,
+  itemCheckboxes: false,
+  compactView: false,
+  showExtensions: true,
+  shortcutOverrides: {},
 };
 /**
  * What a NEW install (no settings file at all) starts with: grouped cards, Medium, by date
@@ -236,6 +267,11 @@ const TERMINAL_HEIGHT = { min: 120, max: 800 };
 const MAX_COLUMN_WIDTH = 2000;
 const SIDEBAR_WIDTH = { min: 160, max: 480 };
 const SAVE_DELAY_MS = 400;
+/** The palette preview's width bounds: 320 is plan 04 4.4's; past 400 the result list is cramped. */
+export const PALETTE_PREVIEW_WIDTH = { min: 240, max: 400 };
+/** A dragged width, whole and inside its bounds. */
+export const clampPalettePreviewWidth = (px: number): number =>
+  Math.min(PALETTE_PREVIEW_WIDTH.max, Math.max(PALETTE_PREVIEW_WIDTH.min, Math.round(px)));
 
 export const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === 'object' && v !== null;
@@ -339,13 +375,32 @@ export const sanitize = (raw: unknown): Settings => {
       : [],
     // absent in every file written before per-folder views existed, and that has to be silent
     folderViews: sanitizeFolderViews(raw.folderViews),
+    tabSets: sanitizeTabSets(raw.tabSets),
     previewOpen: raw.previewOpen === true,
+    // absent before plan 04 4.4: on, at 320
+    palettePreview: raw.palettePreview !== false,
+    palettePreviewWidth:
+      typeof raw.palettePreviewWidth === 'number' && Number.isFinite(raw.palettePreviewWidth)
+        ? clampPalettePreviewWidth(raw.palettePreviewWidth)
+        : DEFAULTS.palettePreviewWidth,
     // anything but the three styles (a missing key, an older file, junk) is 'native'
     comingFrom: toChoice(raw.comingFrom),
     folderSizes: isFolderSizesChoice(raw.folderSizes) ? raw.folderSizes : DEFAULTS.folderSizes,
     indexOn: raw.indexOn !== false,
     indexDrivesOff: sanitizePathList(raw.indexDrivesOff),
     indexSkipFolders: sanitizePathList(raw.indexSkipFolders),
+    // a missing key (a file from before this toggle) or a non-boolean is the default
+    navPane: typeof raw.navPane === 'boolean' ? raw.navPane : DEFAULTS.navPane,
+    // a missing key (a file from before this toggle) or a non-boolean is the default
+    itemCheckboxes:
+      typeof raw.itemCheckboxes === 'boolean' ? raw.itemCheckboxes : DEFAULTS.itemCheckboxes,
+    // a missing key (a file from before this toggle) or a non-boolean is the default
+    compactView: typeof raw.compactView === 'boolean' ? raw.compactView : DEFAULTS.compactView,
+    // a missing key (a file from before this toggle) or a non-boolean is the default
+    showExtensions:
+      typeof raw.showExtensions === 'boolean' ? raw.showExtensions : DEFAULTS.showExtensions,
+    // absent before plan 08 A3: no overrides; unknown ids and malformed chords are dropped
+    shortcutOverrides: sanitizeOverrides(raw.shortcutOverrides),
   };
 };
 
@@ -459,12 +514,20 @@ class SettingsState {
   zoom = $state(DEFAULTS.zoom);
   customCommands = $state<CustomCommand[]>([]);
   folderViews = $state<FolderView[]>([]);
+  tabSets = $state<TabSet[]>([]);
   previewOpen = $state(DEFAULTS.previewOpen);
+  palettePreview = $state(DEFAULTS.palettePreview);
+  palettePreviewWidth = $state(DEFAULTS.palettePreviewWidth);
   comingFrom = $state<ComingFrom>(DEFAULTS.comingFrom);
   folderSizes = $state<FolderSizesChoice>(DEFAULTS.folderSizes);
   indexOn = $state(DEFAULTS.indexOn);
   indexDrivesOff = $state<string[]>([]);
   indexSkipFolders = $state<string[]>([]);
+  navPane = $state(DEFAULTS.navPane);
+  itemCheckboxes = $state(DEFAULTS.itemCheckboxes);
+  compactView = $state(DEFAULTS.compactView);
+  showExtensions = $state(DEFAULTS.showExtensions);
+  shortcutOverrides = $state<Record<string, string>>({});
   loaded = $state(false);
   /**
    * This window's values are the person's, not the shipped defaults: true after `load`, and in
@@ -529,12 +592,20 @@ class SettingsState {
     zoom: this.zoom,
     customCommands: this.customCommands.map((c) => ({ ...c, scope: [...c.scope] })),
     folderViews: this.folderViews.map((v) => ({ ...v })),
+    tabSets: this.tabSets.map((t) => ({ ...t, tabs: [...t.tabs] })),
     previewOpen: this.previewOpen,
+    palettePreview: this.palettePreview,
+    palettePreviewWidth: this.palettePreviewWidth,
     comingFrom: this.comingFrom,
     folderSizes: this.folderSizes,
     indexOn: this.indexOn,
     indexDrivesOff: [...this.indexDrivesOff],
     indexSkipFolders: [...this.indexSkipFolders],
+    navPane: this.navPane,
+    itemCheckboxes: this.itemCheckboxes,
+    compactView: this.compactView,
+    showExtensions: this.showExtensions,
+    shortcutOverrides: toStoredOverrides(this.shortcutOverrides),
   });
 
   apply(s: Settings) {
@@ -570,12 +641,20 @@ class SettingsState {
     this.zoom = s.zoom;
     this.customCommands = s.customCommands;
     this.folderViews = s.folderViews;
+    this.tabSets = s.tabSets;
     this.previewOpen = s.previewOpen;
+    this.palettePreview = s.palettePreview;
+    this.palettePreviewWidth = s.palettePreviewWidth;
     this.comingFrom = s.comingFrom;
     this.folderSizes = s.folderSizes;
     this.indexOn = s.indexOn;
     this.indexDrivesOff = s.indexDrivesOff;
     this.indexSkipFolders = s.indexSkipFolders;
+    this.navPane = s.navPane;
+    this.itemCheckboxes = s.itemCheckboxes;
+    this.compactView = s.compactView;
+    this.showExtensions = s.showExtensions;
+    this.shortcutOverrides = s.shortcutOverrides;
   }
 
   /** Ctrl+Plus / Ctrl+Minus / Ctrl+0: one step on the 0.1 grid, inside the bounds. */
@@ -657,7 +736,9 @@ class SettingsState {
     const shared: Record<string, unknown> = { ...this.#shared };
     const self = this as unknown as Record<string, unknown>;
     for (const key of keys) {
-      shared[key] = clean[key];
+      // `#shared` holds snapshot form, so the overrides go back to their stored spelling
+      shared[key] =
+        key === 'shortcutOverrides' ? toStoredOverrides(clean.shortcutOverrides) : clean[key];
       self[key] = clean[key];
     }
     this.#shared = shared as unknown as Settings;

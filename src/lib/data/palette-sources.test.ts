@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { IndexAnswer } from '$lib/api/palette';
+import type { FoundFiles, IndexAnswer } from '$lib/api/palette';
 import { indexProgress } from '$lib/state/index-progress.svelte';
 import { places } from '$lib/state/places.svelte';
 import { settings } from '$lib/state/settings.svelte';
@@ -15,8 +15,9 @@ const files = vi.fn<
     max: number,
     budget: number,
     depth: number,
-  ) => Promise<FileEntry[]>
+  ) => Promise<FileEntry[] | FoundFiles>
 >(async () => []);
+const allowGuarded = vi.fn<(paths: string[]) => Promise<string[]>>(async (paths) => paths);
 const NOT_READY: IndexAnswer = { ready: false, roots: [], hits: [], total: 0 };
 const indexed = vi.fn<(text: string, max: number) => Promise<IndexAnswer>>(async () => NOT_READY);
 const launchApp = vi.fn<(aumid: string) => Promise<void>>(async () => {});
@@ -34,13 +35,23 @@ vi.mock('$lib/api/palette', () => ({
   openUrlFromPalette: vi.fn(),
   showMain: vi.fn(async () => {}),
   spotlightApps: () => apps(),
-  spotlightFiles: (text: string, roots: string[], max: number, budget: number, depth: number) =>
-    files(text, roots, max, budget, depth),
+  spotlightFiles: async (
+    text: string,
+    roots: string[],
+    max: number,
+    budget: number,
+    depth: number,
+  ) => {
+    const found = await files(text, roots, max, budget, depth);
+    return Array.isArray(found) ? { entries: found, skippedGuarded: [] } : found;
+  },
 }));
 vi.mock('$lib/api/fs', () => ({
   openPath: (p: string) => openPath(p),
   openUrl: vi.fn(),
   readDir: vi.fn(async () => []),
+  allowGuardedFolders: (paths: string[]) => allowGuarded(paths),
+  unopenedGuardedFolders: vi.fn(async () => []),
 }));
 vi.mock('$lib/api/clipboard', () => ({ clipboardWriteText: vi.fn() }));
 vi.mock('$lib/api/recent', () => ({ recentFiles: vi.fn(async () => []) }));
@@ -359,6 +370,38 @@ describe('the files source with the name index', () => {
     places.knownFolders = [{ key: 'desktop', label: 'Desktop', path: DESKTOP }];
     settings.recentFolders = [OUTSIDE];
     settings.pins = [];
+  });
+
+  it('adds no Not searched row when nothing guarded was skipped', async () => {
+    indexed.mockResolvedValue({ ready: true, roots: [HOME], hits: [], total: 0 });
+    const rows = await filesSource().query('report');
+    expect(rows.some((r) => r.key === 'files:not-searched')).toBe(false);
+  });
+
+  it('names the skipped personal folders once, last, and Allow lets them in', async () => {
+    const docs = `${HOME}\\Documents`;
+    const desk = `${HOME}\\Desktop`;
+    indexed.mockResolvedValue({
+      ready: true,
+      roots: [HOME],
+      hits: [],
+      total: 0,
+      skippedGuarded: [docs],
+    });
+    files.mockResolvedValueOnce({ entries: [], skippedGuarded: [desk, docs] });
+    const rows = await filesSource().query('report');
+    const row = rows.find((r) => r.key === 'files:not-searched');
+    expect(row).toMatchObject({
+      title: 'Not searched: Documents, Desktop',
+      quiet: true,
+      actionLabel: 'Allow',
+      keepsOpen: true,
+      pinLast: true,
+    });
+    expect(rows.indexOf(row!)).toBe(rows.length - 1);
+    allowGuarded.mockClear();
+    await row!.run();
+    expect(allowGuarded).toHaveBeenCalledWith([docs, desk]);
   });
 
   it('filesSource uses index hits and still walks uncovered roots', async () => {
@@ -719,6 +762,7 @@ describe('the places source, WSL rows', () => {
       navigate,
       reveal: vi.fn(),
       searchEverywhere: vi.fn(),
+      searchHere: vi.fn(),
       runAction: vi.fn(),
     });
     const rows = await sources.find((s) => s.key === 'places')!.query('');
@@ -775,6 +819,7 @@ describe('where a result acts', () => {
     navigate: vi.fn(),
     reveal: vi.fn(),
     searchEverywhere: vi.fn(),
+    searchHere: vi.fn(),
     runAction: vi.fn(),
   });
   const rowsFrom = async (sources: PaletteSource[], key: string, text = 'no') => {
@@ -866,5 +911,52 @@ describe('the path source and hidden items', () => {
     } finally {
       settings.showHidden = was;
     }
+  });
+});
+
+describe('the extension source', () => {
+  const query = (text: string) => sourceNamed('ext').query(text);
+
+  beforeEach(() => vi.clearAllMocks());
+
+  it('answers `*.ext` and `.ext` with one row, and nothing else', async () => {
+    for (const text of ['*.pdf', '.pdf', '*.PDF']) {
+      const rows = await query(text);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]).toMatchObject({
+        key: 'ext:search',
+        category: 'ext',
+        title: 'Search for *.pdf',
+        matched: true,
+      });
+    }
+    for (const text of ['pdf', 'report.pdf', '.2024', '2+2', '']) {
+      expect(await query(text)).toEqual([]);
+    }
+  });
+
+  it('Enter from the Spotlight window searches the current folder, not every drive', async () => {
+    const [row] = await query('.Pdf');
+    await row.run();
+    expect(showMain).toHaveBeenCalled();
+    expect(emitSearch).toHaveBeenCalledWith('*.pdf', true);
+    expect(hidePalette).toHaveBeenCalled();
+  });
+
+  it('a panel palette asks its own explorer to search here', async () => {
+    const searchHere = vi.fn();
+    const searchEverywhere = vi.fn();
+    const sources = makePaletteSources({
+      navigate: vi.fn(),
+      reveal: vi.fn(),
+      searchEverywhere,
+      searchHere,
+      runAction: vi.fn(),
+    });
+    const [row] = await sources.find((s) => s.key === 'ext')!.query('*.docx');
+    await row.run();
+    expect(searchHere).toHaveBeenCalledWith('*.docx');
+    expect(searchEverywhere).not.toHaveBeenCalled();
+    expect(emitSearch).not.toHaveBeenCalled();
   });
 });

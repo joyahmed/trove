@@ -4,6 +4,7 @@
 // crumbs. Off Windows (macOS, Linux) a path is POSIX: `/` separates, `/` is the one root, and case
 // is kept — plan 10, D.1/D.2. Each OS-dependent helper takes the platform `onWindows` takes;
 // nothing injected (tests, a plain browser) means Windows, like every switch in platform.ts.
+import { shareParts } from '$lib/utils/network';
 import { onWindows } from '$lib/utils/platform';
 
 type Platform = Parameters<typeof onWindows>[0];
@@ -46,6 +47,10 @@ const wslJoin = (distro: string, segments: string[]) =>
     ? `${WSL_HOST}${distro}${SEP}`
     : `${WSL_HOST}${distro}${SEP}${segments.join(SEP)}`;
 
+/** `\\server\share` plus segments; the share root itself has no trailing separator here */
+const shareJoin = (share: { server: string; share: string }, segments: string[]) =>
+  [`${SEP}${SEP}${share.server}`, share.share, ...segments].join(SEP);
+
 /** `/a/b` → `/a`; `/a` → `/`; `/` has no parent → null */
 const posixParentOf = (path: string): string | null => {
   const trimmed = path.replace(POSIX_TRAILING, '');
@@ -65,6 +70,8 @@ export const parentOf = (path: string, platform?: Platform): string | null => {
     return segments.length === 0 ? null : wslJoin(distro, segments.slice(0, -1));
   }
   if (!onWindows(platform)) return posixParentOf(path);
+  const share = shareParts(path);
+  if (share) return share.rest.length === 0 ? null : shareJoin(share, share.rest.slice(0, -1));
   const trimmed = path.replace(TRAILING_SEPS, '');
   if (DRIVE.test(trimmed)) return null;
   const i = trimmed.lastIndexOf(SEP);
@@ -81,6 +88,8 @@ export const parentOf = (path: string, platform?: Platform): string | null => {
 export const nameOf = (path: string, platform?: Platform): string => {
   if (isWslPath(path)) return wslSegments(path).at(-1) ?? '';
   if (!onWindows(platform)) return path.replace(POSIX_TRAILING, '').split(POSIX_SEP).at(-1) ?? '';
+  const share = shareParts(path);
+  if (share) return share.rest.at(-1) ?? share.share;
   const trimmed = path.replace(TRAILING_SEPS, '');
   return DRIVE.test(trimmed) ? '' : (trimmed.split(ANY_SEP).at(-1) ?? '');
 };
@@ -107,6 +116,19 @@ export const crumbsOf = (path: string, platform?: Platform): { label: string; pa
       return { label, path: rooted ? POSIX_SEP + joined : joined };
     });
     return rooted ? [{ label: POSIX_SEP, path: POSIX_SEP }, ...segments] : segments;
+  }
+  const share = shareParts(path);
+  if (share) {
+    // the server crumb goes to the share root as typed, the share crumb to the same root with its
+    // separator, so the two keep distinct keys in the address bar
+    return [
+      { label: share.server, path: shareJoin(share, []) },
+      { label: share.share, path: shareJoin(share, []) + SEP },
+      ...share.rest.map((label, i) => ({
+        label,
+        path: shareJoin(share, share.rest.slice(0, i + 1)),
+      })),
+    ];
   }
   const parts = path.replace(TRAILING_SEPS, '').split(ANY_SEP).filter(Boolean);
   return parts.map((label, i) => {
@@ -151,11 +173,15 @@ export const folderKey = (path: string, platform?: Platform): string => {
 };
 
 /**
- * A drive root, a distro root or `/`: what has no parent and is titled by its own name. `/` is
+ * A drive root, a distro root, a share root (`\\server\share`) or `/`: what has no parent and is
+ * titled by its own name. `/` is
  * answered on every OS — a remembered `/` from a Linux box is a root wherever it is read.
  */
-export const isRootPath = (path: string) =>
-  isDriveRoot(path) || path === POSIX_SEP || (isWslPath(path) && wslSegments(path).length === 0);
+export const isRootPath = (path: string, platform?: Platform) =>
+  isDriveRoot(path) ||
+  path === POSIX_SEP ||
+  (isWslPath(path) && wslSegments(path).length === 0) ||
+  (onWindows(platform) && shareParts(path)?.rest.length === 0);
 
 /**
  * The key two spellings of one path compare equal under: lower-cased on Windows (NTFS, drive

@@ -5,6 +5,7 @@ import {
   arrowAxis,
   detailsRowPx,
   layoutFor,
+  tilesCardHeight,
   viewLayouts,
 } from './view-layouts';
 import { itemsPerChunk } from '$lib/utils/virtual';
@@ -15,6 +16,16 @@ describe('details row height', () => {
     expect(detailsRowPx(false)).toBe(28);
     expect(layoutFor('details', 48, true).chunkSize).toBe(24);
     expect(layoutFor('details', 48, false).chunkSize).toBe(28);
+  });
+  it('Compact view: 22 px, 20 px on a Mac, in the CSS and the virtualizer alike', () => {
+    expect(detailsRowPx(false, true)).toBe(22);
+    expect(detailsRowPx(true, true)).toBe(20);
+    expect(layoutFor('details', 48, false, true).chunkSize).toBe(22);
+    expect(layoutFor('details', 48, true, true).chunkSize).toBe(20);
+    // a group heading is its own 28 px chunk; compact does not touch it, nor the other views
+    expect(layoutFor('details', 48, false, true).headerSize).toBe(28);
+    expect(layoutFor('list', 48, false, true)).toEqual(viewLayouts.list);
+    expect(layoutFor('grid', 96, false, true)).toEqual(layoutFor('grid', 96, false));
   });
   it('keeps the group heading at 28 px and leaves list and grid alone', () => {
     expect(layoutFor('details', 48, true).headerSize).toBe(28);
@@ -53,5 +64,25 @@ describe('Small icons, Tiles and Content (plan 15 G.51)', () => {
     expect(arrowAxis(layoutFor('list', 48))).toBe('columns');
     expect(arrowAxis(layoutFor('details', 48))).toBe('single');
     expect(arrowAxis(layoutFor('content', 48))).toBe('single');
+  });
+});
+
+describe('a search hit tile', () => {
+  it('is taller by the folder line, only while the grid shows a search', () => {
+    expect(layoutFor('grid', 96, false, false, true).chunkSize).toBe(
+      layoutFor('grid', 96, false, false, false).chunkSize + 18,
+    );
+    expect(layoutFor('details', 96, false, false, true)).toEqual(
+      layoutFor('details', 96, false, false, false),
+    );
+  });
+
+  it('a Tiles card is 8 px taller during a search: its 4 lines (64 px) no longer touch the edges', () => {
+    expect(tilesCardHeight(false)).toBe(64);
+    expect(tilesCardHeight(true)).toBe(72);
+    expect(layoutFor('tiles', 48, false, false, true).chunkSize).toBe(72 + TILES_CARD.gap);
+    expect(layoutFor('tiles', 48, false, false, false)).toEqual(viewLayouts.tiles);
+    // 4 text lines x 16 px must leave room inside the card
+    expect(4 * 16).toBeLessThan(tilesCardHeight(true));
   });
 });

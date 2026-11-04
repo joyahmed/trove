@@ -1,0 +1,35 @@
+[
+  [
+    {
+      "destination": "/b",
+      "error": "denied",
+      "kind": "file",
+      "path": "/a"
+    },
+    {
+      "destination": "/b",
+      "error": "denied",
+      "kind": "folder",
+      "path": "/a"
+    },
+    {
+      "destination": "/b",
+      "error": "denied",
+      "kind": "new-folder",
+      "path": "/a"
+    },
+    {
+      "destination": "/b",
+      "error": "denied",
+      "kind": "not-removed",
+      "path": "/a"
+    },
+    {
+      "copy": "/b/a",
+      "destination": "/b",
+      "error": "denied",
+      "kind": "not-removed",
+      "path": "/a"
+    }
+  ]
+]

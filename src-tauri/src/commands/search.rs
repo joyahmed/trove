@@ -30,6 +30,9 @@ pub struct SearchResults {
     pub error: Option<String>,
     /// Entries visited so far, for the status bar.
     pub scanned: u64,
+    /// Mac: the privacy-guarded folders the person has not opened, which this search left out
+    /// (`core::privacy_folders`). Filled on the `done` payload only; empty elsewhere and off a Mac.
+    pub skipped_guarded: Vec<String>,
 }
 
 static NEXT_SEARCH: AtomicU64 = AtomicU64::new(1);
@@ -53,6 +56,23 @@ pub fn start_search(
     let cancel = Arc::new(AtomicBool::new(false));
     with_searches(|s| s.insert(search_id, Arc::clone(&cancel)));
     std::thread::spawn(move || {
+        // ⛔ said from the first batch, not only at the end: a long search of This Mac showed
+        // "Search results in This Mac (0)" and no "Not searched … Allow" line until it finished
+        // (Mac test, 2026-11-04). The walker never enters these, so they are known up front.
+        let local: Vec<PathBuf> = roots
+            .iter()
+            .filter(|r| wsl::split_wsl_path(r).is_none())
+            .map(PathBuf::from)
+            .collect();
+        let guarded = crate::core::privacy_folders::all();
+        let ahead: Vec<PathBuf> = crate::core::privacy_folders::under_any(
+            &local,
+            &crate::core::privacy_folders::unopened(),
+        )
+        .into_iter()
+        .filter(|g| std::fs::symlink_metadata(g).is_ok())
+        .collect();
+        let ahead = crate::core::privacy_folders::in_order(&ahead, &guarded);
         let batch = |entries: Vec<FileEntry>, scanned: u64| SearchResults {
             search_id,
             entries,
@@ -60,6 +80,7 @@ pub fn start_search(
             cancelled: false,
             error: None,
             scanned,
+            skipped_guarded: ahead.clone(),
         };
         let mut sink = |entries: Vec<FileEntry>, scanned: u64| {
             let _ = app.emit(RESULTS_EVENT, batch(entries, scanned));
@@ -79,6 +100,7 @@ pub fn start_search(
         }
         let mut scanned = 0u64;
         let mut errors: Vec<String> = Vec::new();
+        let mut skipped: Vec<PathBuf> = Vec::new();
         if !windows_roots.is_empty() {
             match search::walk(
                 &windows_roots,
@@ -87,6 +109,7 @@ pub fn start_search(
                 &cancel,
                 BATCH_SIZE,
                 &mut sink,
+                &mut skipped,
             ) {
                 Ok(n) => scanned += n,
                 Err(e) => errors.push(e),
@@ -126,6 +149,7 @@ pub fn start_search(
                             cancelled: false,
                             error: Some(format!("{distro}: {e}")),
                             scanned,
+                            skipped_guarded: Vec::new(),
                         },
                     );
                 }
@@ -151,6 +175,10 @@ pub fn start_search(
                 cancelled: cancel.load(Ordering::Relaxed),
                 error,
                 scanned,
+                skipped_guarded: crate::core::privacy_folders::in_order(
+                    &skipped,
+                    &crate::core::privacy_folders::all(),
+                ),
             },
         );
     });

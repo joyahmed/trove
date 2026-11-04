@@ -1,5 +1,7 @@
 // The Details pane's reactivity: follow the selection and the active tab while mounted,
 // listen for folder totals, and hand the state to the markup as getters.
+import { tildeHome } from '$lib/utils/path-display';
+import { homeFolder } from '$lib/state/home-folder.svelte';
 import { untrack } from 'svelte';
 import {
   attributeToggles,
@@ -50,8 +52,16 @@ export const useDetailsPane = () => {
             key: r.key,
             label: r.label,
             value: r.value(details.props!, details.totals),
+            shown: r.shown,
           }))
-          .filter((r): r is { key: string; label: string; value: string } => r.value !== null)
+          .filter((r) => r.value !== null)
+          .map((r) => ({
+            key: r.key,
+            label: r.label,
+            // `value` (the tooltip) stays whole; `shown` may print home as `~`
+            value: r.value as string,
+            shown: r.shown ? r.shown(r.value as string, homeFolder.path) : (r.value as string),
+          }))
       : [],
   );
 
@@ -107,7 +117,10 @@ export const useDetailsPane = () => {
             isLink: false,
             iconKey: one.isDir ? 'folder' : `ext/${extOf(one.name)}`,
           },
-          rows: recycleItemRows(one, onMac()),
+          rows: recycleItemRows(one, onMac()).map((r) => ({
+            ...r,
+            shown: r.key === 'origin' ? tildeHome(r.value, homeFolder.path) : r.value,
+          })),
         }
       : null;
     return { label: locationLabel(loc), icon: previewPlaceIcon(loc), summary, item };

@@ -104,6 +104,10 @@
 :root[data-os='macos'][data-theme='dark'] .settings-nav-item[data-section='appearance']::before {
   box-shadow: inset 0 0 0 0.5px rgb(255 255 255 / 0.18);
 }
+:root[data-os='macos'] .settings-nav-item[data-section='keyboard']::before {
+  background-color: #8e8e93;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.3' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='1.8' y='4' width='12.4' height='8' rx='1.6'/%3E%3Cpath d='M4.3 6.6h.1M6.8 6.6h.1M9.2 6.6h.1M11.7 6.6h.1M5.6 9.4h4.8'/%3E%3C/svg%3E");
+}
 :root[data-os='macos'] .settings-nav-item[data-section='quick-access']::before {
   background-color: #30b0c7;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.5' stroke-linejoin='round'%3E%3Crect x='2' y='3' width='12' height='10' rx='2'/%3E%3Cpath d='M6.2 3v10'/%3E%3C/svg%3E");
@@ -111,6 +115,16 @@
 :root[data-os='macos'] .settings-nav-item[data-section='context-menu']::before {
   background-color: #ff9f0a;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M3 4.5h10M3 8h10M3 11.5h6.5'/%3E%3C/svg%3E");
+}
+/* Apps: a 2x2 grid of rounded tiles, the Launchpad / App Store shape. */
+:root[data-os='macos'] .settings-nav-item[data-section='apps']::before {
+  background-color: #5e5ce6;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='white'%3E%3Crect x='2.5' y='2.5' width='4.6' height='4.6' rx='1.2'/%3E%3Crect x='8.9' y='2.5' width='4.6' height='4.6' rx='1.2'/%3E%3Crect x='2.5' y='8.9' width='4.6' height='4.6' rx='1.2'/%3E%3Crect x='8.9' y='8.9' width='4.6' height='4.6' rx='1.2'/%3E%3C/svg%3E");
+}
+/* Search index: a magnifying glass, the Spotlight shape. */
+:root[data-os='macos'] .settings-nav-item[data-section='search-index']::before {
+  background-color: #34c759;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='white' stroke-width='1.7' stroke-linecap='round'%3E%3Ccircle cx='6.8' cy='6.8' r='4.1'/%3E%3Cpath d='M9.9 9.9l3.6 3.6'/%3E%3C/svg%3E");
 }
 :root[data-os='macos'] .settings-nav-item[data-section='advanced']::before {
   background-color: #636366;

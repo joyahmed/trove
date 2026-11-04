@@ -5,3 +5,6 @@ src-tauri/target
 src-tauri/gen
 bun.lock
 .claude
+
+# written by src-tauri/src/ipc_contract.rs; the Rust test compares them byte for byte
+src-tauri/tests/ipc-fixtures

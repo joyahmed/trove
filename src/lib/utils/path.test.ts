@@ -195,3 +195,60 @@ describe('off Windows, a path is POSIX', () => {
     expect(parentOf(HOME, LINUX)).toBe('\\\\wsl.localhost\\Ubuntu\\home');
   });
 });
+
+/** Write a path with `/` and read it back with `\`: a backslash literal is hard to read twice. */
+const win = (text: string) => text.replaceAll('/', String.fromCharCode(92));
+
+describe('a network share as a root', () => {
+  const SHARE = win('//nas/media');
+  const LINUX = { os: 'linux', thisPcLabel: 'This Computer' } as const;
+
+  it('is a root with or without a trailing separator, either slash direction', () => {
+    expect(isRootPath(SHARE)).toBe(true);
+    expect(isRootPath(win('//nas/media/'))).toBe(true);
+    expect(isRootPath('//nas/media')).toBe(true);
+    expect(isRootPath('//nas/media/')).toBe(true);
+  });
+
+  it('is not a root below the share, on a bare server, or off Windows', () => {
+    expect(isRootPath(win('//nas/media/film'))).toBe(false);
+    expect(isRootPath(win('//nas'))).toBe(false);
+    expect(isRootPath(win('//nas/'))).toBe(false);
+    expect(isRootPath('//nas/media', LINUX)).toBe(false);
+  });
+
+  it('keeps the WSL root a root', () => {
+    expect(isRootPath(win('//wsl.localhost/Ubuntu'))).toBe(true);
+    expect(isRootPath(HOME)).toBe(false);
+  });
+
+  it('stops parentOf at the share', () => {
+    expect(parentOf(win('//nas/media/a/b'))).toBe(win('//nas/media/a'));
+    expect(parentOf(win('//nas/media/a'))).toBe(SHARE);
+    expect(parentOf(SHARE)).toBeNull();
+    expect(parentOf(win('//nas/media/'))).toBeNull();
+    expect(parentOf('//nas/media/a')).toBe(SHARE);
+  });
+
+  it('names the share root by its share', () => {
+    expect(nameOf(SHARE)).toBe('media');
+    expect(nameOf(win('//nas/media/film/a.mkv'))).toBe('a.mkv');
+  });
+
+  it('crumbs server, share, then the folders, each with its own path', () => {
+    const crumbs = crumbsOf(win('//nas/media/a/b'));
+    expect(crumbs.map((c) => c.label)).toEqual(['nas', 'media', 'a', 'b']);
+    expect(crumbs.map((c) => c.path)).toEqual([
+      SHARE,
+      win('//nas/media/'),
+      win('//nas/media/a'),
+      win('//nas/media/a/b'),
+    ]);
+  });
+
+  it('leaves POSIX and drive paths as they were', () => {
+    expect(crumbsOf('//nas/media', LINUX).map((c) => c.label)).toEqual(['/', 'nas', 'media']);
+    expect(parentOf('//nas/media/a', LINUX)).toBe('//nas/media');
+    expect(crumbsOf(win('C:/a')).map((c) => c.label)).toEqual(['C:', 'a']);
+  });
+});

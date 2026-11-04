@@ -13,19 +13,24 @@ export interface PaletteAction {
 }
 
 export const paletteActions: PaletteAction[] = [
-  { key: 'new-tab', label: 'New tab', glyph: 'add', keywords: 'tab open' },
-  { key: 'new-folder', label: 'New folder here', glyph: 'newItem', keywords: 'create directory' },
+  { key: 'new-tab', label: 'New tab', glyph: 'add', keywords: 'tab open add' },
+  {
+    key: 'new-folder',
+    label: 'New folder here',
+    glyph: 'newItem',
+    keywords: 'create directory mkdir make',
+  },
   {
     key: 'toggle-hidden',
     label: 'Toggle hidden files',
     glyph: 'showHidden',
-    keywords: 'show hide',
+    keywords: 'show hide dotfiles invisible',
   },
   {
     key: 'open-terminal',
     label: 'Open terminal here',
     glyph: 'terminal',
-    keywords: 'shell console',
+    keywords: 'shell console command prompt cmd powershell bash zsh cli',
   },
   {
     key: 'open-this-pc',
@@ -43,7 +48,7 @@ export const paletteActions: PaletteAction[] = [
       return `Open ${binName()}`;
     },
     glyph: 'delete',
-    keywords: 'trash deleted restore',
+    keywords: 'trash bin recycle wastebasket deleted restore',
   },
   // ⭐ What Explorer's command bar held before plan 12 G.1 dropped it (D4): every one of these is
   // also on a right-click menu or a key, and the palette is the door that needs neither.
@@ -57,10 +62,22 @@ export const paletteActions: PaletteAction[] = [
   },
   { key: 'cut', label: 'Cut', glyph: 'cut', keywords: 'move clipboard selection' },
   { key: 'copy', label: 'Copy', glyph: 'copy', keywords: 'duplicate clipboard selection' },
+  {
+    key: 'paste-paths-terminal',
+    label: 'Paste paths into terminal',
+    glyph: 'terminal',
+    keywords: 'selection quoted path shell prompt',
+  },
   { key: 'paste', label: 'Paste', glyph: 'paste', keywords: 'clipboard put here' },
   { key: 'rename', label: 'Rename', glyph: 'rename', keywords: 'name change f2' },
-  { key: 'undo', label: 'Undo', glyph: 'undo', keywords: 'revert back' },
+  { key: 'undo', label: 'Undo', glyph: 'undo', keywords: 'revert back ctrl z' },
   { key: 'redo', label: 'Redo', glyph: 'redo', keywords: 'again forward' },
+  {
+    key: 'undo-history',
+    label: 'Undo history',
+    glyph: 'undo',
+    keywords: 'edit history older out of order revert',
+  },
   { key: 'select-all', label: 'Select all', glyph: 'check', keywords: 'selection everything' },
   { key: 'invert-selection', label: 'Invert selection', glyph: 'check', keywords: 'select others' },
   { key: 'sort-name', label: 'Sort by name', glyph: 'sort', keywords: 'order arrange' },
@@ -103,7 +120,7 @@ export const paletteActions: PaletteAction[] = [
     key: 'toggle-details',
     label: 'Toggle details pane',
     glyph: 'details',
-    keywords: 'properties info',
+    keywords: 'properties info inspector get info',
   },
   // the window arrange commands (plan 20); same words as data/window-menu ARRANGE_ROWS
   {
@@ -125,9 +142,15 @@ export const paletteActions: PaletteAction[] = [
     keywords: 'arrange layout columns tile',
   },
   {
+    key: 'save-tab-set',
+    label: 'Save tabs as…',
+    glyph: 'add',
+    keywords: 'tab set group session workspace remember named save',
+  },
+  {
     key: 'open-settings',
     label: 'Open settings',
     glyph: 'settings',
-    keywords: 'preferences options',
+    keywords: 'preferences options config configure configuration',
   },
 ];

@@ -11,7 +11,7 @@ const markup = (path: string) =>
     .replace(/<!--[\s\S]*?-->/g, '');
 
 describe('Shell structure the Mac glass CSS depends on', () => {
-  it('Sidebar is the first element of the row inside the bg-layer body', () => {
+  it('Sidebar is the first element of the row inside the bg-layer body (behind the Navigation pane toggle)', () => {
     const shell = markup('src/lib/components/shell/Shell.svelte');
     const body = shell.indexOf('<div class="bg-layer');
     expect(body).toBeGreaterThan(-1);
@@ -19,12 +19,13 @@ describe('Shell structure the Mac glass CSS depends on', () => {
     const row = afterBody.slice(afterBody.indexOf('<div'));
     // the first tag or block after the row's opening tag
     const inner = row.slice(row.indexOf('>') + 1).trimStart();
-    expect(inner.startsWith('<Sidebar />')).toBe(true);
+    expect(inner).toMatch(/^\{#if shell\.navPane\}\s*<Sidebar \/>\s*\{\/if\}/);
   });
 
-  it('Sidebar always renders its root (no {#if} around it), so it is always that first child', () => {
+  it('Sidebar renders its root unconditionally and the root carries the data-mac the CSS skips', () => {
     const sidebar = markup('src/lib/components/sidebar/Sidebar.svelte').trimStart();
     expect(sidebar.startsWith('<aside')).toBe(true);
+    expect(sidebar.slice(0, sidebar.indexOf('>'))).toContain('data-mac="sidebar"');
   });
 
   it('StatusBar is the last element of the body and its root is a footer', () => {
@@ -36,15 +37,17 @@ describe('Shell structure the Mac glass CSS depends on', () => {
     expect(bar.startsWith('<footer')).toBe(true);
   });
 
-  it('the CSS skips the first child, not a tag, and tints the content surfaces', () => {
+  it('the CSS skips the sidebar by data-mac, not a tag or position, and tints the content surfaces', () => {
     const css = readFileSync('src/app.css', 'utf8');
     expect(css).toContain(
-      ":root[data-os='macos'] .rounded-window > .bg-layer > :first-child > :not(:first-child)",
+      ":root[data-os='macos'] .rounded-window > .bg-layer > :first-child > :not([data-mac='sidebar'])",
     );
     expect(css).toContain(
       ":root[data-os='macos'] .rounded-window > .bg-layer > :not(:first-child):not(footer)",
     );
     expect(css).not.toContain('> :not(aside)');
+    // by position, a hidden navigation pane would leave the list untinted
+    expect(css).not.toContain('> :first-child > :not(:first-child)');
     // no part of the shell row is filled with the SOLID layer on a Mac any more
     expect(css).not.toMatch(/data-os='macos'[^{]*\{\s*background-color: var\(--color-layer\)/);
   });

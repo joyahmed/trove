@@ -2,7 +2,10 @@
 // to do it again. Ctrl+Z / Ctrl+Y and the … menu come through here. A redo after a new
 // action is gone, as in every editor.
 import { tabs } from '$lib/state/tabs.svelte';
+import type { SavedUndo, UndoRecord } from '$lib/types/undo';
+import { inBinWords } from '$lib/utils/platform';
 import { samePath } from '$lib/utils/path';
+import { blockedText, blockerOf, type OverlapEntry } from '$lib/utils/undo-overlap';
 
 export interface UndoEntry {
   /** "Rename", "Move", "Copy", "Delete", "New folder" — shown as "Undo <label>" */
@@ -15,7 +18,49 @@ export interface UndoEntry {
   folder?: string;
   /** a permanent delete (`pushBarrier`): nothing to reverse, and nothing older is reached */
   barrier?: true;
+  /**
+   * What the action did as plain data, read at save time (a Redo can change what it landed),
+   * so the history outlives the window (`types/undo.ts`). An entry without one is not saved.
+   */
+  toRecord?: () => UndoRecord;
+  /**
+   * Run before the step: does the world still match the record (the target there, the place it
+   * goes back to free)? Throws `UndoRefused` rather than let the step clobber anything.
+   */
+  check?: (step: 'undo' | 'redo') => Promise<void>;
+  /** Unix ms when the action happened */
+  at?: number;
+  /**
+   * Why an entry read back after a restart can no longer be undone ("the Trash can't be read
+   * after a restart"), worked out once when it is read (`undo-log.svelte.ts`). The menu says
+   * so, and an Undo on it drops it with that reason instead of trying.
+   */
+  stale?: string;
 }
+
+/**
+ * The disk no longer matches what the entry would reverse (the file is gone, or something new
+ * took the name it goes back to): nothing was changed, the entry is dropped, and the message
+ * says why. Shown as news, not as an error.
+ */
+export class UndoRefused extends Error {
+  override name = 'UndoRefused';
+  /** the part after the dash, for a menu line that names its own action ("is no longer there") */
+  constructor(
+    message: string,
+    readonly reason: string = message,
+  ) {
+    super(message);
+  }
+}
+
+/**
+ * The menu line and the notice for an entry that can no longer be undone. The stored reason keeps
+ * the Windows word ("the Recycle Bin"); the bin is named in the chosen style's word here, where
+ * the person reads it (plan 19), so the menu label, the notice and the history row agree.
+ */
+export const staleText = (entry: UndoEntry) =>
+  inBinWords(`Can't undo ${entry.label} — ${entry.stale}`);
 
 /**
  * An undo the person declined at its own question: nothing changed, so the caller shows news, not
@@ -38,7 +83,13 @@ export class UndoBarrier extends Error {
 export const BARRIER_MESSAGE = "Can't undo a permanent delete";
 
 const labelled = (verb: string, entry: UndoEntry | undefined) =>
-  entry?.barrier ? BARRIER_MESSAGE : entry ? `${verb} ${entry.label}` : verb;
+  entry?.barrier
+    ? BARRIER_MESSAGE
+    : entry?.stale && verb === 'Undo'
+      ? staleText(entry)
+      : entry
+        ? `${verb} ${entry.label}`
+        : verb;
 
 /**
  * The notice after an undo / redo: `Undid copy of "pkg" to "out2"`. An action in a folder that is
@@ -51,6 +102,22 @@ export const steppedText = (verb: 'Undid' | 'Redid', entry: UndoEntry, shown: st
     : text;
 };
 
+/** An entry as the overlap check reads it: its record now (a Redo can change it), else null. */
+export const overlapOf = (entry: UndoEntry): OverlapEntry => ({
+  label: entry.label,
+  record: entry.toRecord?.() ?? null,
+});
+
+/**
+ * Why `entries[index]` (oldest first) cannot be undone on its own yet — `Undo Move 3 items
+ * first — it moved report.txt` — or null when no later entry touches its paths.
+ */
+export const blockedReason = (entries: readonly UndoEntry[], index: number): string | null => {
+  const seen = entries.map(overlapOf);
+  const blocker = blockerOf(seen, index);
+  return blocker ? blockedText(seen[blocker.index], blocker, seen[index].record) : null;
+};
+
 class UndoState {
   #past = $state<UndoEntry[]>([]);
   #future = $state<UndoEntry[]>([]);
@@ -61,30 +128,122 @@ class UndoState {
   undoLabel = $derived(labelled('Undo', this.#past.at(-1)));
   redoLabel = $derived(labelled('Redo', this.#future.at(-1)));
 
+  #listeners = new Set<() => void>();
+
+  /** The undo history, oldest first (Edit ▸ History lists it newest first). */
+  get entries(): readonly UndoEntry[] {
+    return this.#past;
+  }
+
   push(entry: UndoEntry) {
     this.#past.push(entry);
     this.#future = [];
+    this.#changed();
+  }
+
+  /** Called after every change to the history (a push, a step, a restore): how it is saved. */
+  onChange(listener: () => void): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+
+  #changed() {
+    for (const listener of this.#listeners) listener();
+  }
+
+  /**
+   * Entries read back from the last run, oldest first: they go under anything done since this
+   * window opened, so the newest action is still the first one Ctrl+Z reaches.
+   */
+  restore(entries: UndoEntry[]) {
+    if (entries.length === 0) return;
+    this.#past = [...entries, ...this.#past];
+    this.#changed();
+  }
+
+  /** The undo history as the file keeps it, oldest first: the entries that have a record. */
+  saved(): SavedUndo[] {
+    return this.#past.flatMap((e) =>
+      e.toRecord
+        ? [
+            {
+              label: e.label,
+              at: e.at ?? Date.now(),
+              record: e.toRecord(),
+              ...(e.what === undefined ? {} : { what: e.what }),
+              ...(e.folder === undefined ? {} : { folder: e.folder }),
+            },
+          ]
+        : [],
+    );
   }
 
   /** A permanent delete: no undo of its own, and Ctrl+Z after it says so instead of going past. */
-  pushBarrier(folder?: string) {
+  pushBarrier(folder?: string, paths: string[] = []) {
     const never = async () => {
       throw new UndoBarrier(BARRIER_MESSAGE);
     };
-    this.push({ label: 'Permanent delete', undo: never, redo: never, folder, barrier: true });
+    this.push({
+      label: 'Permanent delete',
+      undo: never,
+      redo: never,
+      folder,
+      barrier: true,
+      at: Date.now(),
+      ...(paths.length > 0
+        ? { toRecord: () => ({ kind: 'deleteForever' as const, paths: [...paths] }) }
+        : {}),
+    });
   }
 
   /**
    * Reverse the last action and return it, for the notice that names it; on failure the entry is
    * dropped and the error rethrown. A permanent delete on top throws `UndoBarrier` and stays.
    */
-  undo = () => this.#step(this.#past, this.#future, (e) => e.undo());
-  redo = () => this.#step(this.#future, this.#past, (e) => e.redo());
+  undo = () => this.#step(this.#past, this.#future, 'undo');
+  redo = () => this.#step(this.#future, this.#past, 'redo');
+
+  /**
+   * Out-of-order undo (plan 08 F): reverse the entry at `index` (oldest first) and take it out of
+   * the history, leaving every other entry where it was. The newest entry is a plain `undo()` and
+   * goes on redo as always; an older one does NOT — its redo would land under later actions that
+   * never saw it undone (Decision, plan 08 F).
+   *
+   * Refused, with nothing changed and the entry kept, while a later entry touches any of its
+   * paths (`UndoRefused` naming that entry: undo it first). Then, like `undo()`: a permanent
+   * delete throws `UndoBarrier` and stays, a stale entry is dropped with its reason, `world`
+   * (the entry's own `check`, else the caller's `checkWorld`) runs before the step, and on any
+   * failure past that the entry is dropped and the error rethrown.
+   */
+  async undoAt(
+    index: number,
+    world: (entry: UndoEntry) => Promise<void> = async (e) => e.check?.('undo'),
+  ): Promise<UndoEntry | undefined> {
+    if (index === this.#past.length - 1) return this.undo();
+    if (this.busy) return;
+    const entry = this.#past[index];
+    if (!entry) return;
+    if (entry.barrier) throw new UndoBarrier(BARRIER_MESSAGE);
+    const blocked = blockedReason(this.#past, index);
+    if (blocked) throw new UndoRefused(blocked);
+    this.#past.splice(index, 1);
+    this.busy = true;
+    try {
+      if (entry.stale) throw new UndoRefused(staleText(entry), entry.stale);
+      await world(entry);
+      await entry.undo();
+      return entry;
+    } finally {
+      this.busy = false;
+      this.#changed();
+      await tabs.active.reload();
+    }
+  }
 
   async #step(
     from: UndoEntry[],
     to: UndoEntry[],
-    run: (e: UndoEntry) => Promise<void>,
+    step: 'undo' | 'redo',
   ): Promise<UndoEntry | undefined> {
     if (this.busy) return;
     if (from.at(-1)?.barrier) throw new UndoBarrier(BARRIER_MESSAGE);
@@ -92,11 +251,15 @@ class UndoState {
     if (!entry) return;
     this.busy = true;
     try {
-      await run(entry);
+      // known since it was read back: dropped with its reason, nothing tried
+      if (entry.stale && step === 'undo') throw new UndoRefused(staleText(entry), entry.stale);
+      await entry.check?.(step);
+      await entry[step]();
       to.push(entry);
       return entry;
     } finally {
       this.busy = false;
+      this.#changed();
       await tabs.active.reload();
     }
   }

@@ -37,15 +37,15 @@ pub enum Source {
     KnownDir,
     /// A distro exists, and the entry needs something **inside** it that Windows cannot see.
     ///
-    /// ⛔ Nothing is executed in any distro, despite the name. `detect()` reads the `Lxss`
-    /// registry key (`wsl::distros()`) and starts no VM: the grade means "Windows can see the
-    /// distro, and cannot see what is installed in it", which is why every entry carrying it is
-    /// `certain: false`. The variant keeps its name because `wsl-probe` is the wire value the
-    /// dialog matches on (`DetectSource`, `types/shell-verbs.ts`) and the wording it shows —
-    /// "needs the Remote-WSL extension inside your distro" — is about that unseen half. A real
-    /// probe (`wsl -d <name> -- which code`) boots the distro, so it belongs on a click, never on
-    /// dialog-open; until one is written this variant claims only what the registry said.
-    WslProbe,
+    /// ⛔ Nothing is executed in any distro. `detect()` reads the `Lxss` registry key
+    /// (`wsl::distros()`) and starts no VM: the grade means "Windows can see the distro, and
+    /// cannot see what is installed in it", which is why every entry carrying it is
+    /// `certain: false`. It was called `WslProbe` (`wsl-probe` on the wire) until plan 07 E.2
+    /// pointed out that it described a probe nobody ran; the dialog's wording ("needs the
+    /// Remote-WSL extension in your distro", `data/detect-evidence.ts`) is about that unseen
+    /// half. A real probe (`wsl -d <name> -- which code`) boots the distro, so it belongs on a
+    /// click, never on dialog-open.
+    WslDistro,
     /// Linux: the app's `.desktop` file in an XDG `applications/` folder, its `Exec` program
     /// checked on disk. What the app menu shows, so as good a fact as `App Paths` is on Windows.
     #[cfg_attr(not(all(unix, not(target_os = "macos"))), allow(dead_code))]
@@ -271,6 +271,8 @@ pub struct Probed {
     pub code: Option<(String, Source)>,
     pub zed: Option<(String, Source)>,
     pub vlc: Option<(String, Source)>,
+    /// DevGo (`DevGo.exe`), Joy's dev launcher; it takes `--open <folder>`.
+    pub devgo: Option<(String, Source)>,
     /// Windows Terminal (`wt.exe`).
     pub terminal: Option<(String, Source)>,
     /// PowerShell 7 (`pwsh.exe`) — not Windows PowerShell 5, which is a different program.
@@ -355,7 +357,7 @@ pub fn catalogue(p: &Probed) -> Vec<DetectedApp> {
                 &program,
                 "--remote wsl+%distro% %linuxpath%",
                 &["wsl"],
-                Source::WslProbe,
+                Source::WslDistro,
                 false,
             ));
         }
@@ -393,10 +395,25 @@ pub fn catalogue(p: &Probed) -> Vec<DetectedApp> {
                 &program,
                 "--wsl %distro% %linuxpath%",
                 &["wsl"],
-                Source::WslProbe,
+                Source::WslDistro,
                 false,
             ));
         }
+    }
+
+    // ⚠️ Folders only, `--open <folder>` (DevGo `fix/open-folder-on-command-line`, `43522db`):
+    // DevGo opens a project, so a file has no meaning to it. `certain` only from `App Paths`,
+    // like Zed: a guessed install directory (`KnownDir`) is the one case to sanity-check.
+    if let Some((program, source)) = p.devgo.clone() {
+        out.push(app(
+            "devgo",
+            "Open in DevGo",
+            &program,
+            "--open %path%",
+            &["folder", "background"],
+            source,
+            source != Source::KnownDir,
+        ));
     }
 
     if let Some((program, source)) = p.vlc.clone() {
@@ -522,7 +539,7 @@ pub fn catalogue(p: &Probed) -> Vec<DetectedApp> {
                     source,
                     // The distro is in the registry and the host was found on disk. Nothing here
                     // claims anything about what is installed *inside* the distro — a login shell
-                    // is what `wsl -d` starts by definition — so this is not a `WslProbe` entry.
+                    // is what `wsl -d` starts by definition — so this is not a `WslDistro` entry.
                     true,
                 ));
             }
@@ -578,6 +595,16 @@ pub fn detect() -> Vec<DetectedApp> {
         &apps,
     );
     let zed = resolve("Zed.exe", "Zed", &ZED_DIRS, &apps);
+    let devgo = resolve(
+        "DevGo.exe",
+        "DevGo",
+        &[
+            ("LOCALAPPDATA", r"Programs\DevGo\DevGo.exe"),
+            ("LOCALAPPDATA", r"DevGo\DevGo.exe"),
+            ("ProgramFiles", r"DevGo\DevGo.exe"),
+        ],
+        &apps,
+    );
     let vlc = resolve(
         "vlc.exe",
         "VLC media player",
@@ -602,12 +629,13 @@ pub fn detect() -> Vec<DetectedApp> {
 
     // ⚠️ Every distro, not just the default one: a per-distro entry has to name its distro, and
     // `wsl::distros()` already returns the default first. This is a registry read — see
-    // `Source::WslProbe` for what that does and does not prove.
+    // `Source::WslDistro` for what that does and does not prove.
     let distros: Vec<String> = wsl::distros().into_iter().map(|d| d.name).collect();
 
     catalogue(&Probed {
         code,
         zed,
+        devgo,
         vlc,
         terminal,
         pwsh,
@@ -676,6 +704,15 @@ const KNOWN_APPS: &[KnownApp] = &[
         bundles: &["Zed.app"],
         args: "%path%",
         scope: &["file", "folder", "background"],
+    },
+    KnownApp {
+        id: "devgo",
+        label: "Open in DevGo",
+        commands: &["devgo"],
+        desktop_ids: &["devgo.desktop", "app.zetta.devgo.desktop"],
+        bundles: &["DevGo.app"],
+        args: "--open %path%",
+        scope: &["folder", "background"],
     },
     KnownApp {
         id: "sublime",
@@ -881,7 +918,10 @@ fn mac_catalogue(roots: &[PathBuf]) -> Vec<DetectedApp> {
                 .find_map(|b| roots.iter().map(|r| r.join(b)).find(|p| p.is_dir()))?;
             // a `"` in the path is legal on macOS; `splitArgs` reads `\"` back as a quote
             let quoted = bundle.to_string_lossy().replace('"', "\\\"");
-            let args = format!("-a \"{quoted}\" {}", a.args);
+            // ⚠️ `open -a` hands argv only to a *fresh* launch, and DevGo's second launch is what
+            // passes the folder to the running window — so `-n --args` for it.
+            let flags = if a.id == "devgo" { "-n --args " } else { "" };
+            let args = format!("-a \"{quoted}\" {flags}{}", a.args);
             Some(app(
                 a.id,
                 a.label,
@@ -934,6 +974,7 @@ mod tests {
         Probed {
             code: found(r"C:\Code.exe"),
             zed: found(r"C:\zed.exe"),
+            devgo: found(r"C:\DevGo.exe"),
             vlc: found(r"C:\vlc.exe"),
             terminal: found(r"C:\wt.exe"),
             pwsh: found(r"C:\pwsh.exe"),
@@ -965,6 +1006,23 @@ mod tests {
     #[test]
     fn nothing_installed_offers_nothing() {
         assert!(catalogue(&Probed::default()).is_empty());
+    }
+
+    #[test]
+    fn devgo_is_offered_for_folders_with_open_and_certain_only_from_app_paths() {
+        let out = only(|p| p.devgo = found(r"C:\DevGo.exe"));
+        assert_eq!(out.len(), 1);
+        let d = &out[0];
+        assert_eq!(
+            (d.id.as_str(), d.label.as_str(), d.args.as_str()),
+            ("devgo", "Open in DevGo", "--open %path%")
+        );
+        assert_eq!(d.scope, vec!["folder", "background"]);
+        assert!(d.certain);
+        let guessed = only(|p| p.devgo = Some((r"C:\DevGo.exe".into(), Source::KnownDir)));
+        assert!(!entry(&guessed, "devgo").certain);
+        let shortcut = only(|p| p.devgo = Some((r"C:\DevGo.exe".into(), Source::StartMenu)));
+        assert!(entry(&shortcut, "devgo").certain);
     }
 
     #[test]
@@ -1001,10 +1059,10 @@ mod tests {
         });
         let wsl = entry(&out, "vscode-wsl");
         assert!(!wsl.certain);
-        assert_eq!(wsl.source, Source::WslProbe);
+        assert_eq!(wsl.source, Source::WslDistro);
     }
 
-    /// ⚠️ `WslProbe` is the grade for "Windows sees the distro and not its contents", and only the
+    /// ⚠️ `WslDistro` is the grade for "Windows sees the distro and not its contents", and only the
     /// two remote **editors** may carry it — each needs something installed inside the distro that
     /// Windows cannot see (Code's Remote-WSL extension, Zed's remote server). A distro shell is
     /// not that claim: `wsl -d <name>` starts a login shell by definition, so those entries are
@@ -1014,7 +1072,7 @@ mod tests {
         let out = catalogue(&everything());
         let probed: Vec<&str> = out
             .iter()
-            .filter(|a| a.source == Source::WslProbe)
+            .filter(|a| a.source == Source::WslDistro)
             .map(|a| a.id.as_str())
             .collect();
         assert_eq!(probed, ["vscode-wsl", "zed-wsl"]);
@@ -1063,7 +1121,7 @@ mod tests {
         });
         assert!(entry(&both, "zed").certain);
         assert!(!entry(&both, "zed-wsl").certain);
-        assert_eq!(entry(&both, "zed-wsl").source, Source::WslProbe);
+        assert_eq!(entry(&both, "zed-wsl").source, Source::WslDistro);
     }
 
     /// Zed's confidence follows the evidence rather than a fixed value.
@@ -1446,6 +1504,31 @@ mod linux_tests {
     }
 
     #[test]
+    fn devgo_on_path_or_by_desktop_file_is_offered_with_open() {
+        let s = scratch("devgo");
+        let bin = s.0.join("bin");
+        exe(&bin, "devgo");
+        let path = OsString::from(bin.as_os_str());
+        let out = linux_catalogue(&[], Some(&path));
+        let d = entry(&out, "devgo");
+        assert_eq!(
+            (d.program.as_str(), d.args.as_str(), d.source),
+            ("devgo", "--open %path%", Source::Path)
+        );
+        assert_eq!(d.scope, vec!["folder", "background"]);
+        assert!(d.certain);
+
+        let data = s.0.join("data");
+        desktop(
+            &data,
+            "app.zetta.devgo.desktop",
+            &format!("Exec={} %U", bin.join("devgo").display()),
+        );
+        let out = linux_catalogue(&[data], Some(&OsString::new()));
+        assert_eq!(entry(&out, "devgo").source, Source::DesktopEntry);
+    }
+
+    #[test]
     fn nothing_installed_offers_nothing() {
         let s = scratch("empty");
         let path = OsString::from(s.0.join("bin").as_os_str());
@@ -1570,6 +1653,23 @@ mod mac_tests {
         assert_eq!(zed.label, "Open with Zed");
         assert_eq!(zed.source, Source::KnownDir);
         assert!(zed.certain);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_devgo_bundle_launches_a_new_instance_so_the_folder_reaches_it() {
+        let root = fake_root("devgo");
+        std::fs::create_dir_all(root.join("DevGo.app")).unwrap();
+        let out = mac_catalogue(std::slice::from_ref(&root));
+        assert_eq!(out.len(), 1);
+        assert_eq!(out[0].program, "open");
+        assert_eq!(
+            out[0].args,
+            format!(
+                "-a \"{}\" -n --args --open %path%",
+                root.join("DevGo.app").display()
+            )
+        );
         let _ = std::fs::remove_dir_all(&root);
     }
 

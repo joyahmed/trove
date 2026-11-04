@@ -8,6 +8,7 @@
   import CategoryHeader from './palette-parts/CategoryHeader.svelte';
   import PaletteFooter from './palette-parts/PaletteFooter.svelte';
   import ResultRow from './palette-parts/ResultRow.svelte';
+  import PalettePreview from './palette-parts/PalettePreview.svelte';
 
   interface Props {
     /** set when the palette is a panel inside a window: what Esc and a run close */
@@ -21,8 +22,9 @@
 
 <div
   class="bg-mica text-text border-divider rounded-panel flex flex-col overflow-hidden border {host
-    ? 'shadow-flyout max-h-[min(480px,calc(100vh-6rem))] w-[560px] max-w-[calc(100vw-2rem)]'
+    ? 'shadow-flyout max-h-[min(480px,calc(100vh-6rem))] max-w-[calc(100vw-2rem)]'
     : 'h-screen'}"
+  style:width={host ? `${560 + (pal.showsPreview ? pal.previewWidth : 0)}px` : undefined}
   role="dialog"
   aria-modal={host ? 'true' : undefined}
   aria-label={host ? 'Find anything' : 'Spotlight'}
@@ -35,29 +37,40 @@
     attach={pal.attach}
   />
   {#if pal.groups.length > 0}
-    <div
-      class="border-divider min-h-0 flex-1 overflow-y-auto border-t px-2 pt-1 pb-2"
-      role="listbox"
-      tabindex="-1"
-      onmouseleave={pal.pointerLeft}
-    >
-      <!-- keyed by position: `groups` is rebuilt whole on every paint, and the trailing block of
+    <div class="border-divider flex min-h-0 flex-1 border-t">
+      <div
+        class="min-h-0 min-w-0 flex-1 overflow-y-auto px-2 pt-1 pb-2"
+        role="listbox"
+        tabindex="-1"
+        onmouseleave={pal.pointerLeft}
+      >
+        <!-- keyed by position: `groups` is rebuilt whole on every paint, and the trailing block of
            pinned fallback rows shares its `category` with the group it came from -->
-      {#each pal.groups as group, i (i)}
-        {#if group.label}
-          <CategoryHeader label={group.label} />
-        {/if}
-        {#each group.items as item (item.key)}
-          <ResultRow
-            {item}
-            icon={pal.icon(item)}
-            selected={pal.isSelected(item)}
-            keyMove={pal.keyMove}
-            onhover={(x, y) => pal.hover(item, x, y)}
-            onrun={() => pal.run(item)}
-          />
+        {#each pal.groups as group, i (i)}
+          {#if group.label}
+            <CategoryHeader label={group.label} />
+          {/if}
+          {#each group.items as item (item.key)}
+            <ResultRow
+              {item}
+              icon={pal.icon(item)}
+              selected={pal.isSelected(item)}
+              keyMove={pal.keyMove}
+              onhover={(x, y) => pal.hover(item, x, y)}
+              onrun={() => pal.run(item)}
+            />
+          {/each}
         {/each}
-      {/each}
+      </div>
+      {#if pal.showsPreview}
+        <PalettePreview
+          result={() => pal.current}
+          savePrefs={pal.savePrefs}
+          open={pal.run}
+          reveal={pal.reveal}
+          requery={pal.requery}
+        />
+      {/if}
     </div>
     <PaletteFooter />
   {/if}

@@ -7,6 +7,8 @@
      unpinned — wants 414. The pane offers 510. So nothing here has ever scrolled, and every
      pixel of extra HEIGHT is dead space: at 560 the emptiest section (Advanced) already shows
      434px of nothing. Height therefore stays at the 560 it was, and only the clamp moves it.
+     (Keyboard, plan 08 A4, is the one exception: a row per rebindable action is a list, and
+     `settings-body` scrolls it rather than the dialog growing for one section.)
      WIDTH is the axis the content actually wants: from 880 to 1000 the row descriptions stop
      wrapping and Behaviour drops 271 → 255, Appearance 169 → 129. Past 1000 it buys nothing but
      room, which is the thing a 2560-wide screen has and this box was refusing to take.

@@ -22,6 +22,7 @@ import { menuCommandFor, shortcutFor } from '$lib/data/shortcuts';
 import { onMenuCommand } from '$lib/api/menu';
 import { actions } from '$lib/state/actions.svelte';
 import { confirm } from '$lib/state/confirm.svelte';
+import { undoHistory } from '$lib/state/undo-history.svelte';
 import { modalOpen } from '$lib/state/modal.svelte';
 import { customize } from '$lib/state/customize.svelte';
 import { settingsDialog } from '$lib/state/settings-dialog.svelte';
@@ -39,6 +40,7 @@ import { residency } from '$lib/state/residency.svelte';
 import { search } from '$lib/state/search.svelte';
 import { selection } from '$lib/state/selection.svelte';
 import { MAX_OPEN_TABS, clampZoom, settings } from '$lib/state/settings.svelte';
+import { undoLog } from '$lib/state/undo-log.svelte';
 import { tabs } from '$lib/state/tabs.svelte';
 import { terminal } from '$lib/state/terminal.svelte';
 import { theme } from '$lib/state/theme.svelte';
@@ -58,13 +60,8 @@ import { attachLogConsole, logError, logInfo } from '$lib/api/log';
 import { useFirstPaint } from '$lib/hooks/use-first-paint.svelte';
 import { filteredItemsText } from '$lib/utils/status-text';
 import { selectPlan } from '$lib/utils/launch-select';
-import {
-  planRestore,
-  resolveRestoredTab,
-  windowTabsOf,
-  type WindowPlan,
-} from '$lib/utils/restore-tabs';
-import { pathKind } from '$lib/api/fs';
+import { planRestore, windowTabsOf, type WindowPlan } from '$lib/utils/restore-tabs';
+import { openTabsHere } from '$lib/state/tab-restore';
 import { holdWindows, saveWindowTabs, takeLastSession, type SavedSession } from '$lib/api/session';
 import { createSessionRestore } from '$lib/utils/session-restore';
 import { defaultHandler } from '$lib/state/default-handler.svelte';
@@ -132,23 +129,6 @@ const restoreSession = (launch: Launch) => {
 
 /** A `--hidden` start that stays in the tray (see `reveal`): its other windows wait for a show. */
 const startsInTray = (launch: Launch) => launch.hidden && residency.wantsResident;
-
-/** Show `plan`'s tabs (folders and places) in this window: the first replaces the start tab.
- * Every restored tab, of this window or another, goes through `resolveRestoredTab`: a path from
- * another OS or one that is gone opens the start place, quietly. */
-const openTabsHere = async (plan: WindowPlan) => {
-  if (plan.tabs.length === 0 || tabs.list.length > 1) return;
-  const deps = {
-    windows: onWindows(),
-    exists: async (path: string) => (await pathKind(path)) === 'dir',
-    fallback: startLocation(settings.startPlace),
-  };
-  const at = await Promise.all(plan.tabs.map((t) => resolveRestoredTab(t, deps)));
-  if (tabs.list.length > 1) return; // the user opened a tab while the paths were checked
-  void tabs.active.navigate(at[0], { replace: true });
-  for (const l of at.slice(1)) tabs.open(l);
-  tabs.activate(plan.active);
-};
 
 /** The last run's other windows, one after another, each cascaded from the one before. */
 const openWindows = async (plans: WindowPlan[]) => {
@@ -245,6 +225,8 @@ export const useShell = () => {
     // restored tabs, the launch event, the chord and the tray belong to `main` alone.
     const main = isMainWindow();
     if (main) {
+      // the last run's undo history, under anything done since (plan 08 F2)
+      void undoLog.load(main);
       // The Spotlight chord is a setting, so it can only be registered once settings are read.
       void ready.then(() => spotlight.register(settings.spotlightHotkey));
       // asked for even with Restore tabs off: it is handed out once per run either way
@@ -499,6 +481,7 @@ export const useShell = () => {
     conflict: () => transfers.cancelPending(),
     customize: () => customize.close(),
     settings: () => settingsDialog.close(),
+    undoHistory: () => undoHistory.close(),
   };
 
   /** The mouse's side buttons, as Explorer: 3 = Back, 4 = Forward. Not behind a dialog. The listener
@@ -555,6 +538,10 @@ export const useShell = () => {
     get showList() {
       return tabs.active.showsList || search.active;
     },
+    /** Explorer's View ▸ Show ▸ Navigation pane (plan 06 6.3): off, the sidebar is not drawn */
+    get navPane() {
+      return settings.navPane;
+    },
     /** a folder in its Gallery view (plan 15 G.52); a search's results still show as a list */
     get showFolderGallery() {
       return tabs.active.showsGallery && !search.active;
@@ -574,6 +561,10 @@ export const useShell = () => {
     /** Settings… is open — its dialog mounts */
     get settingsOpen() {
       return settingsDialog.open;
+    },
+    /** Edit ▸ History is open — its panel mounts */
+    get undoHistoryOpen() {
+      return undoHistory.open;
     },
     onkeydown,
     lazyDialog,

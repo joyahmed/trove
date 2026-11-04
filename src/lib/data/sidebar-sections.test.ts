@@ -5,6 +5,7 @@ import {
   driveName,
   driveUsage,
   isExpanded,
+  networkItems,
   oneDriveRows,
   sidebarSections,
 } from './sidebar-sections';
@@ -12,6 +13,7 @@ import { places } from '$lib/state/places.svelte';
 import { THIS_PC } from '$lib/utils/location';
 import { settings } from '$lib/state/settings.svelte';
 import { wsl } from '$lib/state/wsl.svelte';
+import { network } from '$lib/state/network.svelte';
 
 vi.mock('$lib/api/shell', () => ({
   drives: vi.fn(async () => []),
@@ -23,6 +25,7 @@ vi.mock('$lib/api/shell', () => ({
 vi.mock('$lib/api/wsl', () => ({
   wslDistros: vi.fn(async () => []),
   wslHome: vi.fn(async () => ''),
+  wslRunningDistros: vi.fn(async () => []),
 }));
 
 const section = (key: string) => sidebarSections.find((s) => s.key === key)!;
@@ -38,11 +41,12 @@ describe('sidebar sections', () => {
     settings.hiddenSidebarKeys = [];
   });
 
-  it('runs Pinned, Drives, the Gallery/Bin group, Linux — in that order', () => {
+  it('runs Pinned, Drives, the Gallery/Bin group, Network, Linux — in that order', () => {
     expect(sidebarSections.map((s) => s.key)).toEqual([
       QUICK_ACCESS_KEY,
       DRIVES_KEY,
       'system',
+      'network',
       'linux',
     ]);
     expect(section(QUICK_ACCESS_KEY).title).toBe('Pinned');
@@ -74,6 +78,21 @@ describe('sidebar sections', () => {
     expect(linux.title).toBe('Linux');
     expect(linux.items()).toEqual([]);
     expect(linux.keepWhenEmpty).toBeUndefined();
+  });
+
+  it('a running distro carries the running mark, a stopped one does not', () => {
+    wsl.distros = [
+      { name: 'Ubuntu', isDefault: true, uid: 1000 },
+      { name: 'Debian', isDefault: false, uid: 1000 },
+    ];
+    wsl.running = ['Ubuntu'];
+    const rows = section('linux').items();
+    expect(rows.map((r) => [r.label, r.running])).toEqual([
+      ['Ubuntu', true],
+      ['Debian', false],
+    ]);
+    wsl.distros = [];
+    wsl.running = [];
   });
 
   it('Home is the first Pinned row, with the pinned flag; the Bin and Gallery are not pinned rows', () => {
@@ -254,6 +273,17 @@ describe('oneDriveRows', () => {
     expect(oneDriveRows(null, true)).toHaveLength(1);
     expect(oneDriveRows(null, false)).toEqual([]);
   });
+
+  it('adds a sync-state glyph only when the root has a known sync state', () => {
+    const root = String.raw`C:\Users\alex\OneDrive`;
+    expect(oneDriveRows(root, true)[0].status).toBeUndefined();
+    expect(oneDriveRows(root, true, 'syncing')[0].status).toMatchObject({
+      glyph: 'refresh',
+      label: 'Syncing',
+    });
+    expect(oneDriveRows(root, true, 'error')[0].status?.color).toBe('var(--color-critical)');
+    expect(oneDriveRows(null, true, 'syncing')[0].status).toBeUndefined();
+  });
 });
 
 describe('driveUsage', () => {
@@ -276,5 +306,48 @@ describe('driveUsage', () => {
     expect(driveUsage(100, 11)!.level).toBe('low');
     expect(driveUsage(100, 10)!.level).toBe('critical');
     expect(driveUsage(100, 0)!.level).toBe('critical');
+  });
+});
+
+describe('the Network group (5.3b, D3)', () => {
+  // Backslashes are written as `/` and turned back, so no literal has to be read twice.
+  const win = (text: string) => text.replaceAll('/', String.fromCharCode(92));
+  beforeEach(() => {
+    places.drives = [{ path: win('Z:/'), label: 'media', totalBytes: null, freeBytes: null }];
+    network.mapped = [win('Z:/')];
+    settings.recentFolders = [
+      win('//nas/media/film'),
+      win('C:/Users'),
+      win('//NAS/media'),
+      win('//wsl.localhost/Ubuntu/home'),
+      win('//backup/old/2024'),
+    ];
+  });
+
+  it('lists mapped letters, then each visited share root once, no WSL, no local folder', () => {
+    const rows = networkItems();
+    expect(rows.map((r) => [r.label, r.tag])).toEqual([
+      ['media', 'Z:'],
+      ['media', 'nas'],
+      ['old', 'backup'],
+    ]);
+    expect(rows[1].location).toEqual({ kind: 'path', path: win('//nas/media') });
+    expect(rows.every((r) => !r.unreachable)).toBe(true);
+  });
+
+  it('greys a place that missed its deadline and clears it when it answers', () => {
+    network.failed(`${win('//backup/old')} did not answer in 10 s`);
+    network.failed(`${win('Z:/')} did not answer in 10 s`);
+    network.failed(`${win('//nas/media')}: Access is denied. (os error 5)`);
+    const byKey = Object.fromEntries(networkItems().map((r) => [r.key, r.unreachable]));
+    expect(byKey).toEqual({
+      [`net:${win('Z:/')}`]: true,
+      [`net:${win('//nas/media')}`]: false,
+      [`net:${win('//backup/old')}`]: true,
+    });
+    expect(section(DRIVES_KEY).items()[0].unreachable).toBe(true);
+    network.answered(win('//backup/old/2024'));
+    network.answered(win('z:/x'));
+    expect(networkItems().some((r) => r.unreachable)).toBe(false);
   });
 });

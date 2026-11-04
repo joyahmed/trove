@@ -111,3 +111,40 @@ mod tests {
         assert_eq!(resolve_custom(&missing.to_string_lossy()), None);
     }
 }
+
+/// The main window's handle as a plain number, for the shell's dialogs to sit on; 0 elsewhere.
+fn owner_hwnd(window: &tauri::Window) -> isize {
+    #[cfg(windows)]
+    {
+        window.hwnd().map(|h| h.0 as isize).unwrap_or(0)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = window;
+        0
+    }
+}
+
+/// Windows' own right-click menu for `paths` (siblings), or for the empty space of the folder
+/// `paths[0]` when `background`. Runs on the shell-menu STA thread with a deadline, so a hung
+/// shell extension costs this call an error, never the window (plan 05 5.1d).
+#[tauri::command(async)]
+pub fn shell_menu(
+    window: tauri::Window,
+    paths: Vec<String>,
+    background: bool,
+    extended: bool,
+) -> Result<crate::core::shell_menu::ShellMenu, String> {
+    crate::core::shell_menu::query(paths, background, extended, owner_hwnd(&window))
+}
+
+/// Run item `id` of the menu `token` named, from the folder `dir`.
+#[tauri::command(async)]
+pub fn shell_menu_invoke(
+    window: tauri::Window,
+    token: u64,
+    id: u32,
+    dir: String,
+) -> Result<(), String> {
+    crate::core::shell_menu::invoke(token, id, dir, owner_hwnd(&window))
+}

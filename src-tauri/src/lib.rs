@@ -4,6 +4,8 @@ use tauri::{Emitter, Manager};
 
 mod commands;
 mod core;
+#[cfg(test)]
+mod ipc_contract;
 
 /// Event name a second launch is delivered on; the payload is a `core::launch::Launch`.
 pub const LAUNCH_EVENT: &str = "launch";
@@ -22,9 +24,22 @@ fn icon_response(
     cache_dir: &std::path::Path,
     uri: &tauri::http::Uri,
 ) -> tauri::http::Response<Vec<u8>> {
-    let body = core::icons::parse_icon_request(uri.path(), uri.query())
-        .and_then(|(key, size)| core::icons::icon_body(cache_dir, &key, size));
-    icon_ok_response(body)
+    let Some((key, size)) = core::icons::parse_icon_request(uri.path(), uri.query()) else {
+        return icon_ok_response(None);
+    };
+    let Some(path) = core::icons::key_path(&key).map(str::to_owned) else {
+        return icon_ok_response(core::icons::icon_body(cache_dir, &key, size));
+    };
+    // plan 08 D1: a picture of a file on a share waits for the server, so it gets the probe
+    // deadline, and a share that just missed one is not asked again per row; 503 draws the
+    // fallback glyph, as for a shed request
+    let cache_dir = cache_dir.to_path_buf();
+    match core::workers::guarded_unless_dead("icon", &path, core::workers::PROBE_WAIT, move || {
+        core::icons::icon_body(&cache_dir, &key, size)
+    }) {
+        Ok(body) => icon_ok_response(body),
+        Err(_) => icon_busy_response(),
+    }
 }
 
 /// 200 with the body's one content type (`nosniff`: never guessed), or 404. An SVG also gets a
@@ -130,6 +145,13 @@ fn preview_response(
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// The one-shot elevated helper (`core/elevate.rs`): when the exe was started with
+/// `--elevated-op`, do that one operation and return its exit code, before anything else starts.
+pub fn elevated_entry() -> Option<i32> {
+    let args: Vec<String> = std::env::args().collect();
+    core::elevate::helper_main(&args)
+}
+
 pub fn run() {
     // the zero of the start-time line (plan 21 gap 6)
     core::logging::mark_start();
@@ -168,8 +190,15 @@ pub fn run() {
         .manage(commands::tray::Residency(std::sync::Mutex::new(None)))
         .manage(commands::launch::LaunchGate::default())
         .manage(core::index::Index::default())
+        .manage(core::updater::Pending::default())
         .setup(|app| {
             core::logging::log_environment();
+            // Self-update (plan 22.5): only a `--features updater` build registers the plugin;
+            // `start` is a no-op otherwise, and until the public key is set (22.5.1).
+            #[cfg(feature = "updater")]
+            app.handle()
+                .plugin(tauri_plugin_updater::Builder::new().build())?;
+            core::updater::start(app.handle());
             // Windows: the hidden helper windows (event loop, single instance, hotkey) ignore a
             // stray WM_CLOSE instead of dying with it — see `core::helper_windows`.
             core::helper_windows::guard_on_main(app.handle());
@@ -228,6 +257,13 @@ pub fn run() {
                     }
                 });
             }
+            // Windows' right-click items: warm the shell worker once, a few seconds in, so
+            // the first right-click is not the one that pays for COM and handler loading
+            #[cfg(windows)]
+            std::thread::spawn(|| {
+                std::thread::sleep(core::shell_menu::PREWARM_DELAY);
+                core::shell_menu::prewarm();
+            });
             // ⛔ `main` is the one explorer window `build_explorer_window` does NOT make — it
             // comes from `tauri.conf.json` — so it is handed the same DWM treatment here, before
             // the `--hidden` return below, or a resident start would reveal a window with a
@@ -381,12 +417,16 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             commands::fs::read_dir,
+            commands::fs::palette_folder_count,
+            commands::fs::unopened_guarded_folders,
+            commands::fs::allow_guarded_folders,
             commands::fs::open_path,
             commands::open_with::open_with_apps,
             commands::open_with::open_with_app,
             commands::open_with::open_with_dialog,
             commands::fs::open_url,
             commands::fs::rename_entry,
+            commands::fs::retry_elevated,
             commands::fs::create_folder,
             commands::fs::trash_entries,
             commands::fs::create_file,
@@ -402,11 +442,17 @@ pub fn run() {
             commands::recent::recent_files,
             commands::image_dims::image_dimensions,
             commands::fs::path_kind,
+            commands::fs::net_sign_in,
+            commands::fs::set_cloud_pin,
+            commands::fs::cloud_sync_status,
+            commands::fs::mapped_drives,
             commands::theme::system_theme,
             commands::launch::initial_launch,
             commands::settings::read_settings,
             commands::settings::write_settings,
             commands::settings::merge_settings,
+            commands::undo_log::read_undo_log,
+            commands::undo_log::write_undo_log,
             commands::session::save_window_tabs,
             commands::session::take_last_session,
             commands::session::hold_windows,
@@ -482,6 +528,8 @@ pub fn run() {
             commands::shell_verbs::run_custom_command,
             commands::shell_verbs::resolve_custom_program,
             commands::shell_verbs::detect_common_commands,
+            commands::shell_verbs::shell_menu,
+            commands::shell_verbs::shell_menu_invoke,
             commands::windows::open_window,
             commands::windows::show_window,
             commands::window_layout::snap_window,
@@ -493,7 +541,9 @@ pub fn run() {
             commands::recycle::open_in_explorer,
             commands::uninstall::uninstall_list,
             commands::uninstall::uninstall_app,
-            commands::uninstall::open_apps_settings
+            commands::uninstall::open_apps_settings,
+            commands::updater::update_ready,
+            commands::updater::update_restart
         ])
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
@@ -510,6 +560,17 @@ fn with_app_menu<R: tauri::Runtime>(builder: tauri::Builder<R>) -> tauri::Builde
     builder
 }
 
+/// What the run loop's end writes: a move still in the debounce, and the index's unsaved
+/// changes so the next start loads them instead of walking. Also called before an update
+/// installs (`commands::updater`): on Windows the installer ends Trove with
+/// `std::process::exit`, which never reaches the run loop's end.
+pub(crate) fn save_on_the_way_out<R: tauri::Runtime>(app: &tauri::AppHandle<R>) {
+    commands::session::save_all_bounds(app);
+    if let Some(index) = app.try_state::<core::index::Index>() {
+        index.save_all();
+    }
+}
+
 /// The run loop. `Builder::run` is exactly `build(ctx)?.run(|_, _| {})`, so off a Mac nothing
 /// changes; on a Mac the Dock and Finder talk to the app here (`commands::dock`).
 fn on_run_event<R: tauri::Runtime>(app: &tauri::AppHandle<R>, event: tauri::RunEvent) {
@@ -521,11 +582,7 @@ fn on_run_event<R: tauri::Runtime>(app: &tauri::AppHandle<R>, event: tauri::RunE
     // the run loop ending, however it was asked to (a Mac's ⌘Q asks nothing): a move still in
     // the debounce is saved before the windows go
     if let tauri::RunEvent::Exit = &event {
-        commands::session::save_all_bounds(app);
-        // the index's unsaved changes, so the next start loads them instead of walking
-        if let Some(index) = app.try_state::<core::index::Index>() {
-            index.save_all();
-        }
+        save_on_the_way_out(app);
     }
     #[cfg(target_os = "macos")]
     {

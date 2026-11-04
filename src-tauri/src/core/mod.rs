@@ -31,8 +31,10 @@ pub mod launch;
 pub mod lockers;
 pub mod logging;
 // The minimum window size is the inside size on Windows too (tao counts it on the outside).
+pub mod elevate;
 pub mod min_size;
 pub mod mounts;
+pub mod net;
 pub mod ops;
 // "Open with" (plan 15 G.61): shared shape and Windows here, the Mac and Linux sources beside.
 pub mod open_with;
@@ -50,6 +52,7 @@ pub mod privacy_folders;
 // macOS: QuickLook thumbnails for HEIC, TIFF and video, which the Rust decoders cannot read.
 pub mod props;
 pub mod pty;
+pub mod pty_cwd;
 #[cfg(target_os = "macos")]
 pub mod quicklook;
 pub mod recent;
@@ -64,9 +67,11 @@ pub mod search;
 pub mod session;
 pub mod settings;
 pub mod shell;
+pub mod shell_menu;
 pub mod shell_verbs;
 pub mod spotlight;
 pub mod startup;
+pub mod sync_root;
 pub mod sys_menu;
 pub mod theme;
 pub mod thumbs;
@@ -77,6 +82,7 @@ pub mod transfer;
 pub mod trash_mac;
 // What can be uninstalled and how (plan 18). Parsers are pure and tested on every OS; only the
 // live reads and the LiveLauncher are cfg'd inside.
+pub mod undo_log;
 pub mod uninstall;
 pub mod uninstall_linux;
 #[cfg(any(target_os = "macos", test))]
@@ -88,3 +94,5 @@ pub mod window_layout;
 pub mod workers;
 pub mod wsl;
 pub mod wsl_search;
+// Self-update for the GitHub downloads (plan 22.5), behind the cargo feature `updater`.
+pub mod updater;

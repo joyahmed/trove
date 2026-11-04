@@ -157,9 +157,10 @@ export const commandHint = (
 ): string => keyLabel(platformChord(cmd, style, host), host === 'mac');
 
 /**
- * The Show hidden items chord a menu names (G.59), or null where none is bound: Finder's ⇧⌘.
- * under Mac style or on a Mac host, Nautilus' Ctrl+H under Linux style or on a Linux host (never
- * on a Mac, where ⌘H is Hide), nothing for Explorer. The style's own chord wins where both are on.
+ * The Show hidden items chord a menu names (G.59): Finder's ⇧⌘. under Mac style or on a Mac
+ * host, Nautilus' Ctrl+H under Linux style or on a Linux host (never on a Mac, where ⌘H is Hide).
+ * Explorer has none, so Windows style on a Windows host takes Finder's Ctrl+Shift+. (plan 08 A1).
+ * The style's own chord wins where both are on. Null is kept in the type for callers' sake.
  * `data/shortcuts` `hiddenItemsShortcuts` binds the same keys; its test holds the two together.
  */
 export const hiddenItemsChord = (
@@ -170,9 +171,9 @@ export const hiddenItemsChord = (
   const nautilus = 'Ctrl+H';
   if (style === 'mac') return finder;
   if (style === 'linux' && host !== 'mac') return nautilus;
-  if (host === 'mac') return finder;
   if (host === 'linux') return nautilus;
-  return null;
+  // Explorer has none: Windows style takes Finder's (plan 08 A1, every action has a chord)
+  return finder;
 };
 
 /** The same, drawn for the host's keyboard ("⇧⌘." on a Mac), or undefined: no hint. */
@@ -183,6 +184,69 @@ export const hiddenItemsHint = (
   const chord = hiddenItemsChord(style, host);
   return chord === null ? undefined : keyLabel(chord, host === 'mac');
 };
+
+/**
+ * Plan 08 A1: the chords that give every palette action a key, one column per "I'm coming from"
+ * style — `[windows, mac, linux]`, written as the table writes them (Ctrl is ⌘ on a Mac, `Control`
+ * the real Control key). The file manager's own chord wherever one exists: Finder's ⇧⌘H Home and
+ * ⌃⌥⌘1/2/5/6 Sort by, Nautilus' Alt+Home and Ctrl+Shift+I. The rest are Trove's, picked clear of
+ * every chord already bound under any style and of each system's reserved keys (data/shortcuts
+ * `action-chords.test.ts` holds both). `data/shortcuts` `styleChordShortcuts` binds this table,
+ * so a hint and its key cannot drift.
+ */
+export const STYLE_CHORDS = {
+  /** Finder's Go ▸ Home ⇧⌘H; Nautilus' Alt+Home; Explorer has none */
+  openHome: ['Ctrl+Shift+H', 'Ctrl+Shift+H', 'Alt+Home'],
+  /** none of the three has one (Finder's ⇧⌘C is Copy as path here): "My computer" */
+  openThisPc: ['Ctrl+Shift+M', 'Ctrl+Shift+M', 'Ctrl+Shift+M'],
+  /** none of the three has one: B for Bin */
+  openRecycleBin: ['Ctrl+Shift+B', 'Ctrl+Shift+B', 'Ctrl+Shift+B'],
+  /** none of the three has one; ⌥⌘N on a Mac (AltGr+N is refused on a PC, `isAltGraph`) */
+  newTextFile: ['Ctrl+Alt+N', 'Ctrl+Alt+N', 'Ctrl+Alt+N'],
+  /** Nautilus' Ctrl+Shift+I; Explorer and Finder have none */
+  invertSelection: ['Ctrl+Shift+I', 'Ctrl+Shift+I', 'Ctrl+Shift+I'],
+  /** VS Code's new-terminal chord beside the terminal pane's Ctrl+`; ⌃⇧` on a Mac (⇧⌘` is the
+   * system's previous-window key) */
+  openTerminal: ['Ctrl+Shift+`', 'Control+Shift+`', 'Ctrl+Shift+`'],
+  /** Finder's View ▸ Sort By ⌃⌥⌘1 Name, 2 Kind, 5 Date Modified, 6 Size; Ctrl+Alt+digit on a PC */
+  sortName: ['Ctrl+Alt+1', 'Control+Alt+Ctrl+1', 'Ctrl+Alt+1'],
+  sortType: ['Ctrl+Alt+2', 'Control+Alt+Ctrl+2', 'Ctrl+Alt+2'],
+  sortModified: ['Ctrl+Alt+5', 'Control+Alt+Ctrl+5', 'Ctrl+Alt+5'],
+  sortSize: ['Ctrl+Alt+6', 'Control+Alt+Ctrl+6', 'Ctrl+Alt+6'],
+  /** the ninth view, after Explorer's eight (Ctrl+Shift+1…8, ⌃⌘1…8 on a Mac) */
+  viewGallery: ['Ctrl+Shift+9', 'Control+Ctrl+9', 'Ctrl+Shift+9'],
+} as const satisfies Record<string, readonly [string, string, string]>;
+
+export type StyleCommand = keyof typeof STYLE_CHORDS;
+
+/**
+ * Commands the HOST's column decides, whatever the style: their Mac chord needs the real Control
+ * key (⌃⌥⌘, ⌃⌘, ⌃⇧), which a PC writes as Ctrl and a Mac keeps apart from ⌘ — as `HOST_RESERVED`.
+ */
+export const STYLE_HOST_RESERVED: ReadonlySet<StyleCommand> = new Set([
+  'openTerminal',
+  'sortName',
+  'sortType',
+  'sortModified',
+  'sortSize',
+  'viewGallery',
+]);
+
+const STYLE_COLUMN: Record<OsStyle, 0 | 1 | 2> = { windows: 0, mac: 1, linux: 2 };
+
+/** The chord a style's hint names for a command, as the table writes it. */
+export const styleChord = (
+  cmd: StyleCommand,
+  style: OsStyle = comingFrom.style,
+  host: OsStyle = hostStyle(),
+): string => STYLE_CHORDS[cmd][STYLE_COLUMN[STYLE_HOST_RESERVED.has(cmd) ? host : style]];
+
+/** The same, drawn for the host's keyboard ("⇧⌘H" on a Mac). */
+export const styleHint = (
+  cmd: StyleCommand,
+  style: OsStyle = comingFrom.style,
+  host: OsStyle = hostStyle(),
+): string => keyLabel(styleChord(cmd, style, host), host === 'mac');
 
 type KeyChord = Pick<KeyboardEvent, 'key' | 'metaKey' | 'ctrlKey' | 'altKey' | 'shiftKey'> & {
   getModifierState?: (key: string) => boolean;

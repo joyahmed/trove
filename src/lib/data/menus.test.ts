@@ -86,6 +86,7 @@ describe('the … menu', () => {
     const label = (key: string) => items.find((i) => i.key === key)?.label;
     expect(moreMenu.some((i) => i.kind === 'submenu' && i.key === 'compress-to')).toBe(true);
     expect(label('extract-here')).toBe('Extract here');
+    // the flyout is already at its 24-row cap: Extract all… lives in the right-click menus only
     expect(items.map((i) => i.key)).not.toContain('extract-all');
   });
 });

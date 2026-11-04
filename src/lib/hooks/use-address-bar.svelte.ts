@@ -4,7 +4,7 @@
 // typed there goes under it (plan 12, D7). Returns getters so the component stays live
 // (CONTRIBUTING.md § 1). The ▾ at its end (and F4 / Alt+↓) lists the places this tab has been,
 // newest first, as Explorer's does; picking one goes there.
-import { openPath, openUrl, pathKind } from '$lib/api/fs';
+import { openPath, openUrl, pathKind, readDir } from '$lib/api/fs';
 import { logError } from '$lib/api/log';
 import { userProfile } from '$lib/api/shell';
 import type { GlyphName } from '$lib/data/glyphs';
@@ -17,10 +17,12 @@ import {
   crumbsOfLocation,
   locationText,
   parseLocation,
+  pathLocation,
   sameLocation,
   urlScheme,
 } from '$lib/utils/location';
 import { isWslPath } from '$lib/utils/path';
+import { crumbMenuItems, NO_SUBFOLDERS } from '$lib/utils/crumb-menu';
 import { settings } from '$lib/state/settings.svelte';
 import { archiveLocation, isBrowsableArchive } from '$lib/utils/archive-location';
 import type { Attachment } from 'svelte/attachments';
@@ -99,6 +101,48 @@ export const useAddressBar = () => {
     );
     return list.length ? list : [NO_HISTORY];
   });
+
+  // The chevron between two crumbs (and the one after the last) lists the subfolders of the crumb
+  // to its left; picking one goes there (plan 06 § 6.4). One menu, shared: it holds the rows of
+  // whichever chevron opened it, and `crumbMenuOf` says which, for aria-expanded.
+  const crumbMenu = useMenu();
+  let crumbItems = $state<MenuItem[]>([NO_SUBFOLDERS]);
+  let crumbMenuOf = $state<number | null>(null);
+  let crumbAsk = 0;
+  /** Whether the chevron after crumb `i` can list anything: only a folder crumb has subfolders. */
+  const canListCrumb = (i: number) => crumbs[i]?.location.kind === 'path';
+  /**
+   * Open the list under the chevron `anchor` that follows crumb `i`. The folder is read first and
+   * the list opens once it is known; an unreadable or empty folder shows one quiet "No
+   * subfolders" row. A second press on the same chevron closes it.
+   */
+  const openCrumbMenu = async (i: number, anchor: HTMLElement) => {
+    const crumb = crumbs[i];
+    if (!crumb || crumb.location.kind !== 'path') return;
+    if (crumbMenu.open && crumbMenuOf === i) return crumbMenu.close();
+    const ask = ++crumbAsk;
+    editing = false;
+    let items: MenuItem[];
+    try {
+      const next = crumbs[i + 1]?.location;
+      items = crumbMenuItems((await readDir(crumb.location.path)).entries, {
+        showHidden: settings.showHidden,
+        current: next?.kind === 'path' ? next.path : null,
+        go: (path) => tabs.active.navigate(pathLocation(path)),
+      });
+    } catch (e) {
+      logError('addressBar.crumbMenu', e);
+      items = [NO_SUBFOLDERS];
+    }
+    if (ask !== crumbAsk) return; // a newer press superseded this one while the read ran
+    crumbItems = items;
+    crumbMenuOf = i;
+    crumbMenu.openBelow(anchor);
+  };
+  const onCrumbChevron = (i: number, e: MouseEvent) => {
+    e.stopPropagation();
+    if (e.currentTarget instanceof HTMLElement) void openCrumbMenu(i, e.currentTarget);
+  };
 
   const startEdit = () => {
     draft = locationText(tabs.active.location);
@@ -196,6 +240,17 @@ export const useAddressBar = () => {
     onkeydown,
     focus,
     go: (to: Location) => tabs.active.navigate(to),
+    crumbMenu,
+    get crumbItems() {
+      return crumbItems;
+    },
+    /** the crumb index whose chevron opened the list, while it is open */
+    get crumbMenuOf() {
+      return crumbMenu.open ? crumbMenuOf : null;
+    },
+    canListCrumb,
+    openCrumbMenu,
+    onCrumbChevron,
     historyMenu,
     get historyItems() {
       return historyItems;

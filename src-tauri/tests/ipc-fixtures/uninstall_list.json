@@ -1,0 +1,88 @@
+[
+  [
+    {
+      "folder": "/opt/app",
+      "id": "id",
+      "name": "App",
+      "path": "/opt/app/app",
+      "program": "app",
+      "publisher": "Pub",
+      "removable": "yes",
+      "stamp": "2026-01-01",
+      "typed": false,
+      "version": "1.0"
+    },
+    {
+      "folder": "/opt/app",
+      "id": "id",
+      "name": "App",
+      "path": "/opt/app/app",
+      "program": "app",
+      "publisher": "Pub",
+      "removable": "system",
+      "stamp": "2026-01-01",
+      "typed": false,
+      "version": "1.0"
+    },
+    {
+      "folder": "/opt/app",
+      "id": "id",
+      "name": "App",
+      "path": "/opt/app/app",
+      "program": "app",
+      "publisher": "Pub",
+      "removable": "trove",
+      "stamp": "2026-01-01",
+      "typed": false,
+      "version": "1.0"
+    },
+    {
+      "folder": "/opt/app",
+      "id": "id",
+      "name": "App",
+      "path": "/opt/app/app",
+      "program": "app",
+      "publisher": "Pub",
+      "removable": "noUninstaller",
+      "stamp": "2026-01-01",
+      "typed": false,
+      "version": "1.0"
+    },
+    {
+      "folder": "/opt/app",
+      "id": "id",
+      "name": "App",
+      "path": "/opt/app/app",
+      "program": "app",
+      "publisher": "Pub",
+      "removable": "link",
+      "stamp": "2026-01-01",
+      "typed": false,
+      "version": "1.0"
+    },
+    {
+      "folder": "/opt/app",
+      "id": "id",
+      "name": "App",
+      "path": "/opt/app/app",
+      "program": "app",
+      "publisher": "Pub",
+      "removable": "notApp",
+      "stamp": "2026-01-01",
+      "typed": false,
+      "version": "1.0"
+    },
+    {
+      "folder": "/opt/app",
+      "id": "id",
+      "name": "App",
+      "path": "/opt/app/app",
+      "program": "app",
+      "publisher": "Pub",
+      "removable": "elsewhere",
+      "stamp": "2026-01-01",
+      "typed": false,
+      "version": "1.0"
+    }
+  ]
+]

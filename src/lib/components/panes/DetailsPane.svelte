@@ -66,7 +66,7 @@
     </div>
     <div class="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1" data-mac="info-grid">
       {#each pane.rows as row (row.key)}
-        <DetailsRow label={row.label} value={row.value} />
+        <DetailsRow label={row.label} value={row.value} shown={row.shown} />
       {/each}
     </div>
     {#if !pane.inArchive}
@@ -102,7 +102,7 @@
         data-mac="info-grid"
       >
         {#each pane.place.item.rows as row (row.key)}
-          <DetailsRow label={row.label} value={row.value} />
+          <DetailsRow label={row.label} value={row.value} shown={row.shown} />
         {/each}
       </div>
     </div>

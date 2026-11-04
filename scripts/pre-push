@@ -1,8 +1,9 @@
 #!/bin/sh
 # Trove pre-push: the gate for pushes made by hand. Installed by scripts/install-git-hook.ts;
 # the global ~/.git-hooks/pre-push chains to it. Tiers:
-#   every push:      bun run check, bun run lint, and cargo fmt --check when src-tauri/ changed
-#   a push to main:  + bun run test, bun run build, and cargo clippy + cargo test when src-tauri/ changed
+#   every push:      private-words check (cheap), bun run check, bun run lint, and cargo fmt --check when src-tauri/ changed
+#   a push to main:  + bun run test, bun run build, and cargo clippy + cargo test when src-tauri/ changed,
+#                    then bun run build:exe (the release profile: lto, panic = "abort") when src-tauri/ changed
 # Red blocks the push. A gate that could not run (no bun, no install) says so and lets it through.
 # SKIP_VERIFY=1 git push ... skips it and says so.
 
@@ -74,6 +75,7 @@ step() {
 }
 
 echo "   trove pre-push: $([ "$MAIN" = "1" ] && echo "main push, full tier" || echo "branch push, quick tier")$([ "$RUST" = "1" ] && echo ", Rust changed")" >&2
+step "private words" bun scripts/private-words-check.ts
 step "typecheck" bun run check
 step "lint" bun run lint
 [ "$RUST" = "1" ] && step "cargo fmt" sh -c 'cd src-tauri && cargo fmt --check'
@@ -83,6 +85,9 @@ if [ "$MAIN" = "1" ]; then
 	if [ "$RUST" = "1" ]; then
 		step "cargo clippy" sh -c 'cd src-tauri && cargo clippy --all-targets -- -D warnings'
 		step "cargo test" sh -c 'cd src-tauri && cargo test'
+		# the release profile (lto, panic = "abort", codegen-units = 1) compiles differently from
+		# the debug one every other step uses (plan 07 F.2). Slow, so main only.
+		step "release build" bun run build:exe
 	fi
 fi
 exit 0

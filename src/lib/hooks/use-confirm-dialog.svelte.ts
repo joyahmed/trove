@@ -33,6 +33,28 @@ export const useConfirmDialog = () => {
     get danger() {
       return confirm.pending?.danger === true;
     },
+    get input() {
+      return confirm.pending?.input ?? null;
+    },
+    get problem() {
+      return confirm.problem;
+    },
+    get text() {
+      return confirm.text;
+    },
+    set text(v: string) {
+      confirm.text = v;
+      confirm.problem = null;
+    },
+    /** `use:` action for the name box: focus it with its text selected, after the panel's trap took focus */
+    focusInput: (el: HTMLInputElement) => {
+      const t = setTimeout(() => {
+        el.focus();
+        el.select();
+      }, 0);
+      return { destroy: () => clearTimeout(t) };
+    },
+    /** Enter in the name box answers OK; the dialog's own handler leaves a text field alone */
     ok: () => confirm.answer(true),
     cancel: () => confirm.answer(false),
     onkeydown,

@@ -5,20 +5,27 @@
 import type { ArchiveFormat } from '$lib/types/archive';
 import * as fs from '$lib/api/fs';
 import { openTerminal } from '$lib/api/shell';
-import { restoreFromTrash } from '$lib/api/transfer';
 import { newItemKinds, type NewItemKind } from '$lib/data/new-items';
 import { clipboard } from '$lib/state/clipboard.svelte';
 import { confirm } from '$lib/state/confirm.svelte';
 import { listing } from '$lib/state/listing.svelte';
 import { notices, type NoticeKind } from '$lib/state/notices.svelte';
 import { tabs } from '$lib/state/tabs.svelte';
+import { terminal } from '$lib/state/terminal.svelte';
+import { paneShellFor, pastePathsText } from '$lib/utils/shell-quote';
 import { isAppBundle } from '$lib/utils/app-bundle';
+import { isAccessDenied, RETRY_AS_ADMIN } from '$lib/utils/elevate';
+import { onWindows } from '$lib/utils/platform';
+import { stripExtension } from '$lib/utils/file-name';
 import { pathLocation } from '$lib/utils/location';
 import { openWindow } from '$lib/api/window';
 import { selection } from '$lib/state/selection.svelte';
 import { transfers } from '$lib/state/transfers.svelte';
-import { steppedText, undo, UndoBarrier, UndoDeclined } from '$lib/state/undo.svelte';
+import { steppedText, undo, UndoBarrier, UndoDeclined, UndoRefused } from '$lib/state/undo.svelte';
+import type { UndoEntry } from '$lib/state/undo.svelte';
+import { checkWorld, entryFor } from '$lib/state/undo-executor';
 import type { FileEntry } from '$lib/types/fs';
+import { destinationProblem } from '$lib/utils/extract-destination';
 import { nameOf, parentOf, samePath, toLinuxForm } from '$lib/utils/path';
 import { clipboardWritePathsText } from '$lib/api/clipboard';
 import { logError } from '$lib/api/log';
@@ -33,6 +40,16 @@ import {
   isBrowsableArchive,
   splitArchivePath,
 } from '$lib/utils/archive-location';
+
+/**
+ * The disk check an out-of-order undo runs first (plan 08 F): the entry's own, else `checkWorld`
+ * on its record — a live copy or move keeps a job-aware entry with no check of its own.
+ */
+const world = async (entry: UndoEntry) => {
+  if (entry.check) return entry.check('undo');
+  const record = entry.toRecord?.();
+  if (record) await checkWorld(record, 'undo');
+};
 
 class ActionsState {
   #renaming = $state<string | null>(null);
@@ -58,6 +75,16 @@ class ActionsState {
     return this.#renamingNow;
   }
   draft = $state('');
+  /**
+   * The extension the rename box leaves out: with "File name extensions" off a file is renamed
+   * the way Explorer does it, by its shown name only, and the hidden `.pdf` goes back on at commit.
+   * '' when the box holds the whole name.
+   */
+  #renameSuffix = '';
+  /** the box holds the base name only: it selects all of it, not up to the last dot */
+  get renameHidesExtension() {
+    return this.#renameSuffix !== '';
+  }
 
   /** Rows exist only in a folder; on Home / This PC nothing is selectable or creatable. */
   inFolder = $derived(tabs.active.isFolder);
@@ -91,29 +118,6 @@ class ActionsState {
       ? `this ${listing.rows.find((e) => e.path === paths[0])?.isDir ? 'folder' : 'file'}`
       : `these ${paths.length} items`;
 
-  /**
-   * Undo of something this app created (a new folder, a zip): to the Recycle Bin, or — where
-   * the backend says there is none — asked about and then deleted for good. A "no" throws
-   * `UndoDeclined`, so the undo stack does not record a removal that did not happen.
-   */
-  #removeCreated = async (path: string, what: string) => {
-    let refused: fs.NoRecycleBin | null;
-    try {
-      return await fs.trashEntries([path]);
-    } catch (e) {
-      refused = noRecycleBin(e);
-      if (!refused) throw e;
-    }
-    const ok = await confirm.ask({
-      title: what.includes('folder') ? 'Delete Folder' : 'Delete File',
-      message: noBinQuestion(refused, what),
-      okLabel: 'Delete',
-      danger: true,
-    });
-    if (!ok) throw new UndoDeclined(`Undo cancelled — ${what} was not deleted`);
-    await fs.deleteEntries([path]);
-  };
-
   /** Show a toast; plain calls are information, `#fail` is an error (other state uses it too). */
   notify = (message: string, kind: NoticeKind = 'info') => notices.push({ kind, message });
 
@@ -130,6 +134,31 @@ class ActionsState {
   #failOrLocked = async (e: unknown, paths: string[], retry: () => unknown) => {
     if (await notifyLocked(paths, e, retry)) logError('actions', e);
     else this.#fail(e);
+  };
+
+  /**
+   * Windows refused with access denied: the error notice offers "Retry as administrator", which
+   * runs `op` once in a copy of Trove started through UAC (plan 05 5.6) and then `done` with its
+   * answer. No undo entry: undoing it would need the same rights. false: not that failure.
+   */
+  #offerAdmin = (e: unknown, op: fs.ElevatedOp, done: (answer: string) => Promise<void>) => {
+    if (!onWindows() || !isAccessDenied(e)) return false;
+    logError('actions', e);
+    notices.push({
+      kind: 'error',
+      message: String(e),
+      action: {
+        label: RETRY_AS_ADMIN,
+        run: async () => {
+          try {
+            await done(await fs.retryElevated(op));
+          } catch (again) {
+            this.#fail(again);
+          }
+        },
+      },
+    });
+    return true;
   };
 
   /**
@@ -201,7 +230,9 @@ class ActionsState {
     const entry = listing.rows.find((e) => e.path === path);
     if (!entry) return;
     this.renaming = entry.path;
-    this.draft = entry.name;
+    const base = settings.showExtensions || entry.isDir ? entry.name : stripExtension(entry.name);
+    this.#renameSuffix = entry.name.slice(base.length);
+    this.draft = base;
   };
 
   cancelRename = () => {
@@ -211,7 +242,9 @@ class ActionsState {
   commitRename = async () => {
     // not `this.renaming`: this runs from the rename box's teardown too (see `renamingNow`)
     const path = this.renamingNow;
-    const name = this.draft.trim();
+    const typed = this.draft.trim();
+    // an emptied box stays empty, so the cancel below still sees it
+    const name = typed === '' ? '' : typed + this.#renameSuffix;
     this.renaming = null;
     if (!path) return;
     const current = listing.rows.find((e) => e.path === path);
@@ -227,16 +260,21 @@ class ActionsState {
     const folder = tab.path;
     try {
       const to = await fs.renameEntry(path, name);
-      undo.push({
-        label: 'Rename',
-        what: `rename of "${oldName}" to "${name}"`,
-        folder,
-        undo: async () => void (await fs.renameEntry(to, oldName)),
-        redo: async () => void (await fs.renameEntry(path, name)),
-      });
+      undo.push(
+        entryFor(
+          { label: 'Rename', what: `rename of "${oldName}" to "${name}"`, folder },
+          { kind: 'rename', from: path, to },
+        ),
+      );
       await tab.reload();
       this.#reveal(tab, folder, to);
     } catch (e) {
+      const elevated = { kind: 'rename', path, newName: name } as const;
+      const done = async (to: string) => {
+        await tab.reload();
+        this.#reveal(tab, folder, to);
+      };
+      if (this.#offerAdmin(e, elevated, done)) return;
       await this.#failOrLocked(e, [path], () => this.#rename(path, name, oldName));
     }
   };
@@ -245,23 +283,36 @@ class ActionsState {
   /** New → <kind>: create it, select it, and go straight into rename, as Explorer does. */
   newItem = async (kind: NewItemKind) => {
     if (!this.inFolder) return;
+    const tab = tabs.active;
+    const dir = tab.path;
+    const folder = kind.ext === '';
     try {
-      const tab = tabs.active;
-      const dir = tab.path;
-      const create = () =>
-        kind.ext === '' ? fs.createFolder(dir) : fs.createFile(dir, kind.baseName, kind.ext);
-      const path = await create();
-      undo.push({
-        label: `New ${kind.label.toLowerCase()}`,
-        what: `new ${kind.label.toLowerCase()} "${nameOf(path)}"`,
-        folder: dir,
-        undo: () => this.#removeCreated(path, `the new ${kind.label.toLowerCase()}`),
-        // the same name again, unless something took it meanwhile — then the next free one
-        redo: async () => void (await create()),
-      });
+      const path = folder
+        ? await fs.createFolder(dir)
+        : await fs.createFile(dir, kind.baseName, kind.ext);
+      // a redo asks for the same name again, unless something took it meanwhile — then the
+      // next free one (`undo-executor` runStep)
+      undo.push(
+        entryFor(
+          {
+            label: `New ${kind.label.toLowerCase()}`,
+            what: `new ${kind.label.toLowerCase()} "${nameOf(path)}"`,
+            folder: dir,
+          },
+          folder
+            ? { kind: 'newFolder', path }
+            : { kind: 'newFile', path, baseName: kind.baseName, ext: kind.ext },
+        ),
+      );
       await tab.reload();
       if (this.#reveal(tab, dir, path)) this.startRename(path);
     } catch (e) {
+      // only a folder: a new file's elevated copy would be the administrator's to edit
+      const done = async (path: string) => {
+        await tab.reload();
+        this.#reveal(tab, dir, path);
+      };
+      if (folder && this.#offerAdmin(e, { kind: 'createFolder', dir }, done)) return;
       this.#fail(e);
     }
   };
@@ -328,13 +379,16 @@ class ActionsState {
   #binned = async (paths: string[]) => {
     try {
       // only now: the files are in the bin, so the undo has something to restore
-      undo.push({
-        label: 'Delete',
-        what: `delete of ${paths.length === 1 ? `"${nameOf(paths[0])}"` : `${paths.length} items`}`,
-        folder: parentOf(paths[0]) ?? undefined,
-        undo: () => restoreFromTrash(paths),
-        redo: () => fs.trashEntries(paths),
-      });
+      undo.push(
+        entryFor(
+          {
+            label: 'Delete',
+            what: `delete of ${paths.length === 1 ? `"${nameOf(paths[0])}"` : `${paths.length} items`}`,
+            folder: parentOf(paths[0]) ?? undefined,
+          },
+          { kind: 'trash', paths: [...paths] },
+        ),
+      );
       selection.clear();
       await tabs.active.reload();
     } catch (e) {
@@ -367,14 +421,45 @@ class ActionsState {
 
   /**
    * Extract here: into a new folder beside the archive, named after it (`photos`, then
-   * `photos (2)`), so nothing is ever overwritten and no question is asked. There is no
-   * "Extract all…" yet: no folder picker exists (plan 16, Phase 1 — it comes with paste).
+   * `photos (2)`), so nothing is ever overwritten and no question is asked.
    */
   extractHere = async () => {
     const entry = this.#extractable;
     if (!entry) return;
     try {
       await archives.extractHere(entry.path);
+    } catch (e) {
+      this.#fail(e);
+    }
+  };
+
+  /**
+   * Extract all…: ask for a folder (the app's text prompt; no native picker is in this build),
+   * then extract there with the same progress, conflict question and Undo as a paste out of an
+   * archive. A path that is not an existing folder asks again, with the reason.
+   */
+  extractAll = async () => {
+    const entry = this.#extractable;
+    if (!entry) return;
+    try {
+      let value = parentOf(entry.path) ?? '';
+      for (;;) {
+        const typed = await confirm.askText({
+          title: 'Extract all…',
+          message: `Extract “${entry.name}” into this folder.`,
+          okLabel: 'Extract',
+          placeholder: 'Folder, like C:\\Backups or /media/stick',
+          value,
+          validate: destinationProblem,
+        });
+        if (typed === null) return;
+        if ((await fs.pathKind(typed)) === 'dir') {
+          await archives.extractTo(entry.path, typed);
+          return;
+        }
+        this.notify(`“${typed}” is not an existing folder`, 'error');
+        value = typed;
+      }
     } catch (e) {
       this.#fail(e);
     }
@@ -417,11 +502,19 @@ class ActionsState {
     const folder = parentOf(paths[0]) ?? undefined;
     try {
       await fs.deleteEntries(paths);
-      undo.pushBarrier(folder);
+      undo.pushBarrier(folder, paths);
       selection.clear();
       await tabs.active.reload();
     } catch (e) {
-      undo.pushBarrier(folder);
+      undo.pushBarrier(folder, paths);
+      const done = async () => {
+        selection.clear();
+        await tabs.active.reload();
+      };
+      if (this.#offerAdmin(e, { kind: 'delete', paths }, done)) {
+        await tabs.active.reload(); // part of the list may be gone
+        return;
+      }
       await this.#failOrLocked(e, paths, () => this.#deleteNow(paths));
       await tabs.active.reload(); // part of the list may be gone
     }
@@ -444,6 +537,27 @@ class ActionsState {
    * "Copy as path": the selected paths as quoted text, one per line. A selection that is
    * entirely on WSL shares is copied in its `distro:/…` form, the one a shell there wants.
    */
+  /** The selected rows a cloud provider marked: the only ones the two OneDrive items act on. */
+  get cloudSelection(): FileEntry[] {
+    return listing.rows.filter((e) => e.cloudState !== undefined && selection.paths.has(e.path));
+  }
+
+  /**
+   * OneDrive's "Always keep on this device" (`keep`) or "Free up space" for the selected cloud
+   * files. The provider downloads or frees the bytes on its own time; the reload shows the new
+   * badge as soon as the attribute flips.
+   */
+  setCloudPin = async (keep: boolean) => {
+    const paths = this.cloudSelection.map((e) => e.path);
+    if (paths.length === 0) return;
+    try {
+      await fs.setCloudPin(paths, keep);
+    } catch (e) {
+      this.#fail(e);
+    }
+    await tabs.active.reload();
+  };
+
   copyAsPath = async () => {
     if (!this.hasSelection) return;
     const paths = [...selection.paths];
@@ -456,6 +570,22 @@ class ActionsState {
     } catch (e) {
       this.#fail(e);
     }
+  };
+
+  /**
+   * "Paste paths into terminal" (plan 08 E3): the selected paths, quoted for the pane's shell and
+   * space-separated, typed at its prompt with no Enter. Opens the pane when it is closed. Nothing
+   * selected = nothing sent and the pane stays as it is.
+   */
+  pastePathsIntoTerminal = async () => {
+    if (!this.hasSelection) return;
+    // a live pane's shell was started at `terminal.path`; a closed one will start at the tab
+    const shell = paneShellFor(terminal.open ? terminal.path : tabs.active.path);
+    const { text, skipped } = pastePathsText([...selection.paths], shell);
+    if (skipped > 0) this.notify(`${skipped} not reachable from the terminal's shell, left out`);
+    if (!text) return;
+    if (!(await terminal.typeIntoPrompt(text)))
+      this.notify('The terminal could not take the paths', 'error');
   };
 
   /**
@@ -497,12 +627,21 @@ class ActionsState {
   // ── undo / redo ────────────────────────────────────────────────────────────
   // every step names what it did: an undo once reached past a permanent delete and took back an
   // older copy in another folder with nothing on screen to say so
-  undo = async () => {
+  undo = () => this.#undid(undo.undo());
+
+  /**
+   * Edit ▸ History's pick (plan 08 F): undo the entry at `index` (oldest first) out of order, the
+   * disk checked first. A newer entry on the same files refuses it with a warning naming that one.
+   */
+  undoAt = (index: number) => this.#undid(undo.undoAt(index, world));
+
+  #undid = async (step: Promise<UndoEntry | undefined>) => {
     try {
-      const done = await undo.undo();
+      const done = await step;
       if (done) this.notify(steppedText('Undid', done, tabs.active.path));
     } catch (e) {
       if (e instanceof UndoDeclined || e instanceof UndoBarrier) this.notify(e.message);
+      else if (e instanceof UndoRefused) this.notify(e.message, 'warning');
       else this.#fail(e);
     }
   };
@@ -512,7 +651,8 @@ class ActionsState {
       const done = await undo.redo();
       if (done) this.notify(steppedText('Redid', done, tabs.active.path));
     } catch (e) {
-      this.#fail(e);
+      if (e instanceof UndoRefused) this.notify(e.message, 'warning');
+      else this.#fail(e);
     }
   };
 }

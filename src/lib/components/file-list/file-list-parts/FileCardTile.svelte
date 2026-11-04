@@ -1,13 +1,17 @@
 <!-- Tiles view: Explorer's card — the 48 px icon beside the name, the type and (for a file) the
-     size. Fixed 256 × 64 px (`TILES_CARD`), so the virtualizer packs them in rows. -->
+     size. 256 × 64 px (`TILES_CARD`; 8 px taller on a search hit), so the virtualizer packs them in rows. -->
 <script lang="ts">
   import { rowId } from '$lib/utils/row-id';
   import type { FileEntry } from '$lib/types/fs';
-  import { dropPathOf, shownName } from '$lib/utils/app-bundle';
+  import { dropPathOf } from '$lib/utils/app-bundle';
+  import { displayName } from '$lib/data/display-name';
   import { useInfotip } from '$lib/hooks/use-infotip.svelte';
-  import { TILES_CARD } from '$lib/data/view-layouts';
+  import { TILES_CARD, tilesCardHeight } from '$lib/data/view-layouts';
   import { tileLines } from '$lib/utils/card-lines';
+  import { fileIconKind } from '$lib/utils/file-icon';
+  import { useHitFolder } from '$lib/hooks/use-hit-folder.svelte';
   import EntryIcon from '$lib/components/ui/EntryIcon.svelte';
+  import ItemCheck from './ItemCheck.svelte';
   import Infotip from './Infotip.svelte';
   import RenameBox from './RenameBox.svelte';
 
@@ -44,7 +48,9 @@
     onopen,
   }: Props = $props();
   const tip = useInfotip(() => entry);
-  const lines = $derived(tileLines(entry));
+  const where = useHitFolder(() => entry);
+  const lines = $derived(tileLines(entry, fileIconKind(entry)));
+  const height = $derived(tilesCardHeight(where.hit !== null));
 </script>
 
 <!-- the same selection chip as FileTile: the fill says selected, a 1px inset rim the cursor -->
@@ -58,7 +64,7 @@
     ? 'bg-selection outline-accent outline-1'
     : ''}"
   style:width="{TILES_CARD.width}px"
-  style:height="{TILES_CARD.height}px"
+  style:height="{height}px"
   id={rowId(entry.path)}
   role="row"
   aria-rowindex={index + 1}
@@ -77,15 +83,23 @@
 >
   <!-- no `title`: the infotip carries the clamped name, and a native tooltip would race it -->
   <Infotip {entry} {tip} />
+  <ItemCheck {selected} />
   <EntryIcon {entry} size={32} box={TILES_CARD.icon} />
   <span class="flex min-w-0 flex-1 flex-col">
     {#if renaming}
       <RenameBox />
     {:else}
-      <span class="truncate text-xs leading-4">{shownName(entry)}</span>
+      <span class="truncate text-xs leading-4">{displayName(entry)}</span>
       {#each lines as line, i (i)}
         <span class="text-text-secondary truncate text-[11px] leading-4">{line}</span>
       {/each}
+      {#if where.hit}
+        <span
+          class="text-text-secondary truncate text-[11px] leading-4"
+          data-testid="hit-folder"
+          title={where.hit.title}>{where.hit.text}</span
+        >
+      {/if}
     {/if}
   </span>
 </div>

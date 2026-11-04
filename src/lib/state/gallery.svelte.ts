@@ -6,25 +6,14 @@ import { galleryItems } from '$lib/api/gallery';
 import { oneDriveRoot, knownFolders, userProfile } from '$lib/api/shell';
 import { unwatchPath, watchPath } from '$lib/api/watch';
 import type { FileEntry } from '$lib/types/fs';
-import { extensionOf, isDecodedThumbnail } from '$lib/utils/file-icon';
+import { extensionOf } from '$lib/utils/file-icon';
 import { pathSep, samePath } from '$lib/utils/path';
 
 /** A change burst in Pictures settles this long before the Gallery looks again. */
 export const GALLERY_REFRESH_MS = 800;
 
-/**
- * The words under a Gallery tile's glyph, so a tile without a picture reads as "this kind has
- * no preview here" and not as a thumbnail still on its way (Mac: two photos and a video that
- * "never" loaded, Mac 16a32d4). Off Windows Rust draws only `DECODED_THUMBNAIL_EXTS` (and on a
- * Mac QuickLook adds HEIC, TIFF and most video, `QUICKLOOK_THUMBNAIL_EXTS`); the rest keep
- * their glyph for good, so they say so. A decodable kind names only
- * its type: the label sits behind the picture and shows only if the picture never comes (too
- * big, unreadable).
- */
-export const tileLabel = (name: string, drawn: boolean, mac?: boolean): string => {
-  const ext = extensionOf(name)?.toUpperCase() ?? 'FILE';
-  return drawn && !isDecodedThumbnail(name, mac) ? `${ext} · no preview` : ext;
-};
+// The words under a tile's glyph live in `utils/tile-label.ts`, shared with the file list.
+export { tileLabel } from '$lib/utils/tile-label';
 
 export interface GalleryGroup {
   /** `2026-09`, or `unknown` for items without a date (listed last) */

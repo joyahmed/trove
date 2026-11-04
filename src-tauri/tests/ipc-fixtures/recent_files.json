@@ -1,0 +1,16 @@
+[
+  [
+    {
+      "createdMs": 1690000000000,
+      "ext": "txt",
+      "iconKey": "ext/txt",
+      "isDir": false,
+      "isHidden": false,
+      "modifiedMs": 1700000000000,
+      "name": "a.txt",
+      "path": "/home/alex/a.txt",
+      "size": 2048,
+      "typeName": "Text Document"
+    }
+  ]
+]

@@ -27,6 +27,15 @@ describe('isBrowsableArchive', () => {
     for (const n of ['a.gz', 'a.txt', 'zip', 'a.zip.txt', 'a.rar'])
       expect(isBrowsableArchive(n), n).toBe(false);
   });
+
+  it('a .rar browses only in a build that reads RAR (cargo feature `rar`)', () => {
+    vi.stubGlobal('window', { __TROVE_PLATFORM__: { ...LINUX, rar: true } });
+    expect(isBrowsableArchive('a.rar')).toBe(true);
+    expect(isBrowsableArchive('A.RAR')).toBe(true);
+    expect(isBrowsableArchive('a.rar.txt')).toBe(false);
+    vi.stubGlobal('window', { __TROVE_PLATFORM__: { ...LINUX, rar: false } });
+    expect(isBrowsableArchive('a.rar')).toBe(false);
+  });
 });
 
 describe('archiveLocation', () => {

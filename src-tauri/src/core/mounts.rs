@@ -58,6 +58,9 @@ pub fn is_network_fs(fstype: &str) -> bool {
 pub struct Mount {
     pub point: String,
     pub fstype: String,
+    /// macOS: the kernel flags the mount `MNT_DONTBROWSE` (Finder's `nobrowse`) or
+    /// `MNT_AUTOMOUNTED`. Always false on Linux.
+    pub hidden: bool,
 }
 
 /// The mount points of the network filesystems in `table`.
@@ -88,6 +91,7 @@ pub fn parse_proc_mounts(text: &str) -> Vec<Mount> {
             Some(Mount {
                 point: crate::core::places_unix::unescape_mount(point),
                 fstype: fstype.to_string(),
+                hidden: false,
             })
         })
         .collect()
@@ -111,6 +115,39 @@ pub fn network_share_of(path: &Path, table: &[Mount]) -> Option<String> {
     mount_of(path, table)
         .filter(|m| is_network_fs(&m.fstype))
         .map(|m| m.point.clone())
+}
+
+/// Whether a filesystem type is the automounter. Stepping onto an `autofs` point (`/net`,
+/// `/home`, `/Network/Servers` on a Mac; systemd automounts on Linux) mounts whatever it maps,
+/// often a network share, so a walk Trove starts on its own never enters one either.
+pub fn is_automount_fs(fstype: &str) -> bool {
+    fstype.trim().eq_ignore_ascii_case("autofs")
+}
+
+/// The points in `table` a walk Trove starts never enters: network shares, automounts, and on a
+/// Mac every mount the kernel flags `nobrowse` or automounted (read off `statfs.f_flags`, not
+/// guessed from the name).
+///
+/// ⛔ `/System/Volumes/Data` is one of those: the APFS data volume, which `/Users`,
+/// `/Applications`, `/Volumes`… are firmlinked into. A search of This Mac from `/` walked into
+/// it and reached `~/Desktop`, `~/Documents` and `~/Downloads` a second time, spelled
+/// `/System/Volumes/Data/Users/<me>/…`, a spelling the guarded list did not know, and raised
+/// all three prompts before any Allow (Mac test, 2026-11-04). Everything on it is reached
+/// through the firmlinks anyway; a ROOT on a skipped mount is still walked.
+pub fn skip_points(table: &[Mount]) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = table
+        .iter()
+        .filter(|m| m.hidden || is_network_fs(&m.fstype) || is_automount_fs(&m.fstype))
+        .map(|m| PathBuf::from(&m.point))
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+/// `skip_points` of this machine's mount table right now.
+pub fn walk_skip_points() -> Vec<PathBuf> {
+    skip_points(&mount_table())
 }
 
 /// The network mount points on this machine right now. Empty when the table cannot be read
@@ -167,6 +204,7 @@ pub fn mount_table() -> Vec<Mount> {
         .map(|s| Mount {
             point: c_chars(&s.f_mntonname),
             fstype: c_chars(&s.f_fstypename),
+            hidden: s.f_flags & ((libc::MNT_DONTBROWSE | libc::MNT_AUTOMOUNTED) as u32) != 0,
         })
         .collect()
 }
@@ -186,6 +224,124 @@ pub fn mount_table() -> Vec<Mount> {
     Vec::new()
 }
 
+/// How far away a path is, read from its spelling (and on Windows its drive's type). The path
+/// itself is never touched, so asking is instant even for a dead server (plan 08 D1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Reach {
+    /// A local disk: no deadline.
+    Local,
+    /// `\\wsl.localhost\…` or `\\wsl$\…`: spelled like UNC, but the distro is on this machine
+    /// (plan 08 C2/C3). No deadline either: a distro that is starting is slow, not gone.
+    Wsl,
+    /// A UNC share, a mapped network letter, a removable or optical drive: every probe,
+    /// listing and icon goes through `workers::guarded` with a deadline.
+    Remote,
+}
+
+/// `path` with `/` read as `\` and a `\\?\` / `\\?\UNC\` prefix taken off, so the rest of the
+/// classifier sees one spelling.
+fn plain_windows(path: &str) -> String {
+    let p = path.replace('/', "\\");
+    if let Some(rest) = p.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{rest}")
+    } else if let Some(rest) = p.strip_prefix(r"\\?\") {
+        rest.to_string()
+    } else {
+        p
+    }
+}
+
+/// `\\server\share` for a UNC path (no trailing slash, case kept), or `None`. A bare
+/// `\\server` has no share yet and is `None` too; `\\.\` device paths are not shares.
+pub fn share_root(path: &str) -> Option<String> {
+    let p = plain_windows(path);
+    let rest = p.strip_prefix(r"\\")?;
+    let mut parts = rest.split('\\');
+    let server = parts
+        .next()
+        .filter(|s| !s.is_empty() && *s != "." && *s != "?")?;
+    let share = parts.next().filter(|s| !s.is_empty())?;
+    Some(format!(r"\\{server}\{share}"))
+}
+
+/// Whether a UNC host is WSL's own (`wsl.localhost`, `wsl$`), any case.
+pub fn is_wsl_host(host: &str) -> bool {
+    host.eq_ignore_ascii_case("wsl.localhost") || host.eq_ignore_ascii_case("wsl$")
+}
+
+/// `Reach` for `path`; `drive_is_remote` answers for an upper-case drive letter, so a test
+/// can stand in for the OS.
+pub fn reach_with(path: &str, drive_is_remote: impl Fn(char) -> bool) -> Reach {
+    let p = plain_windows(path);
+    if let Some(rest) = p.strip_prefix(r"\\") {
+        let host = rest.split('\\').next().unwrap_or("");
+        return match host {
+            "" | "." | "?" => Reach::Local,
+            h if is_wsl_host(h) => Reach::Wsl,
+            _ => Reach::Remote,
+        };
+    }
+    let mut chars = p.chars();
+    match (chars.next(), chars.next()) {
+        (Some(letter), Some(':'))
+            if letter.is_ascii_alphabetic() && drive_is_remote(letter.to_ascii_uppercase()) =>
+        {
+            Reach::Remote
+        }
+        _ => Reach::Local,
+    }
+}
+
+/// `Reach` for `path` on this machine. Off Windows every path is `Local` here: the mount
+/// table above already keeps Trove's own walks off network mounts there.
+pub fn reach_of(path: &str) -> Reach {
+    reach_with(path, drive_is_remote)
+}
+
+/// A mapped network letter, a removable drive or an optical drive. `GetDriveTypeW` reads the
+/// mount manager's record of the letter and does not ask the drive itself.
+#[cfg(windows)]
+fn drive_is_remote(letter: char) -> bool {
+    use windows_sys::Win32::Storage::FileSystem::GetDriveTypeW;
+    const DRIVE_REMOVABLE: u32 = 2;
+    const DRIVE_REMOTE: u32 = 4;
+    const DRIVE_CDROM: u32 = 5;
+    let root: Vec<u16> = format!("{letter}:\\").encode_utf16().chain([0]).collect();
+    // SAFETY: `root` is a NUL-terminated UTF-16 string that outlives the call.
+    let kind = unsafe { GetDriveTypeW(root.as_ptr()) };
+    matches!(kind, DRIVE_REMOVABLE | DRIVE_REMOTE | DRIVE_CDROM)
+}
+
+#[cfg(not(windows))]
+fn drive_is_remote(_letter: char) -> bool {
+    false
+}
+
+/// The drive letters mapped to a network share (`DRIVE_REMOTE`), as `Z:\`: the sidebar's
+/// Network group lists them (plan 05 5.3b). `GetLogicalDrives` + `GetDriveTypeW` read the mount
+/// manager's records only, so a dead mapping answers at once. Empty off Windows.
+#[cfg(windows)]
+pub fn mapped_letters() -> Vec<String> {
+    use windows_sys::Win32::Storage::FileSystem::{GetDriveTypeW, GetLogicalDrives};
+    const DRIVE_REMOTE: u32 = 4;
+    // SAFETY: no arguments; the bitmask is the return value.
+    let mask = unsafe { GetLogicalDrives() };
+    (0u8..26)
+        .filter(|i| mask & (1 << i) != 0)
+        .map(|i| format!("{}:\\", (b'A' + i) as char))
+        .filter(|root| {
+            let wide: Vec<u16> = root.encode_utf16().chain([0]).collect();
+            // SAFETY: `wide` is a NUL-terminated UTF-16 string that outlives the call.
+            unsafe { GetDriveTypeW(wide.as_ptr()) == DRIVE_REMOTE }
+        })
+        .collect()
+}
+
+#[cfg(not(windows))]
+pub fn mapped_letters() -> Vec<String> {
+    Vec::new()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -194,7 +350,46 @@ mod tests {
         Mount {
             point: point.into(),
             fstype: fstype.into(),
+            hidden: false,
         }
+    }
+
+    /// ⭐ This Mac's "Search everywhere" raised the Desktop, Documents and Downloads prompts:
+    /// the walk from `/` entered `/System/Volumes/Data` (a `nobrowse` mount) and met the home
+    /// folder again under a spelling the guarded list did not know. Hidden mounts are skipped.
+    #[test]
+    fn hidden_mac_mounts_are_skipped_but_the_boot_volume_is_not() {
+        let hide = |point: &str| Mount {
+            hidden: true,
+            ..m(point, "apfs")
+        };
+        let table = [
+            m("/", "apfs"),
+            hide("/System/Volumes/Data"),
+            hide("/dev"),
+            m("/Volumes/USB", "msdos"),
+        ];
+        assert_eq!(
+            skip_points(&table),
+            [PathBuf::from("/System/Volumes/Data"), PathBuf::from("/dev")]
+        );
+    }
+
+    #[test]
+    fn walks_skip_shares_and_automounts_but_not_local_disks() {
+        let table = [
+            m("/", "apfs"),
+            m("/Volumes/media", "smbfs"),
+            m("/System/Volumes/Data/home", "autofs"),
+            m("/Volumes/USB", "msdos"),
+        ];
+        assert_eq!(
+            skip_points(&table),
+            [
+                PathBuf::from("/System/Volumes/Data/home"),
+                PathBuf::from("/Volumes/media")
+            ]
+        );
     }
 
     #[test]
@@ -287,5 +482,53 @@ mod tests {
         assert!(!is_network_point(Path::new("/Volumes"), &points));
         assert!(!is_network_point(Path::new("/Volumes/media2"), &points));
         assert!(!is_network_point(Path::new("/Volumes/media/x"), &points));
+    }
+
+    #[test]
+    fn wsl_paths_are_wsl_not_remote() {
+        let never = |_| false;
+        for p in [
+            r"\\wsl.localhost\Ubuntu\home",
+            r"\\WSL.LOCALHOST\Ubuntu",
+            r"\\wsl$\Debian\etc",
+            "//wsl.localhost/Ubuntu/home",
+            r"\\?\UNC\wsl$\Ubuntu",
+        ] {
+            assert_eq!(reach_with(p, never), Reach::Wsl, "{p}");
+        }
+    }
+
+    #[test]
+    fn unc_shares_and_remote_letters_are_remote() {
+        let never = |_| false;
+        assert_eq!(reach_with(r"\\10.255.255.1\x", never), Reach::Remote);
+        assert_eq!(reach_with(r"\\nas\media\film", never), Reach::Remote);
+        assert_eq!(reach_with(r"\\?\UNC\nas\media", never), Reach::Remote);
+        assert_eq!(reach_with(r"\\wsl.localhost.evil\x", never), Reach::Remote);
+        let z_is_mapped = |l| l == 'Z';
+        assert_eq!(reach_with(r"z:\work", z_is_mapped), Reach::Remote);
+        assert_eq!(reach_with(r"C:\Users", z_is_mapped), Reach::Local);
+        assert_eq!(reach_with(r"\\?\C:\long", z_is_mapped), Reach::Local);
+        assert_eq!(reach_with(r"\\.\PhysicalDrive0", never), Reach::Local);
+        assert_eq!(reach_with("/home/alex", never), Reach::Local);
+    }
+
+    #[test]
+    fn share_roots() {
+        let root = |p: &str| share_root(p);
+        assert_eq!(
+            root(r"\\nas\media\film\a.mkv").as_deref(),
+            Some(r"\\nas\media")
+        );
+        assert_eq!(root(r"\\nas\media").as_deref(), Some(r"\\nas\media"));
+        assert_eq!(root("//nas/media/").as_deref(), Some(r"\\nas\media"));
+        assert_eq!(
+            root(r"\\?\UNC\nas\media\x").as_deref(),
+            Some(r"\\nas\media")
+        );
+        assert_eq!(root(r"\\nas"), None);
+        assert_eq!(root(r"\\nas\"), None);
+        assert_eq!(root(r"\\.\pipe\x"), None);
+        assert_eq!(root(r"C:\x"), None);
     }
 }

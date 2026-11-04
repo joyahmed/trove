@@ -11,4 +11,7 @@ describe('previewFits', () => {
   it('hides at the 800px minimum window with a 248px sidebar', () => {
     expect(previewFits(800, 248)).toBe(false);
   });
+  it('fits at 800px once the navigation pane is hidden (PaneHost passes width 0)', () => {
+    expect(previewFits(800, 0)).toBe(true);
+  });
 });

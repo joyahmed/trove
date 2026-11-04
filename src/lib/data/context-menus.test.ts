@@ -15,6 +15,7 @@ import { openTerminal } from '$lib/api/shell';
 import { archiveLocation } from '$lib/utils/archive-location';
 import { openWithApps } from '$lib/api/open-with';
 import { iconUrl, thumbUrl } from '$lib/api/icons';
+import { actions } from '$lib/state/actions.svelte';
 
 const run = vi.hoisted(() => ({ verb: vi.fn(async () => {}), custom: vi.fn(async () => {}) }));
 vi.mock('$lib/api/shell-verbs', () => ({
@@ -142,12 +143,12 @@ describe('context menu builders', () => {
     run.custom.mockClear();
   });
 
-  it('a file row offers Compress to ZIP file and Extract here, and no Extract all… yet', () => {
+  it('a file row offers Compress to ZIP file and Extract here, and Extract all…', () => {
     const menu = rowMenuFor(entry('C:\\docs\\photos.zip', false));
     const items = labels(menu);
     expect(menu.some((i) => i.key === 'compress-to')).toBe(true);
     expect(items).toContain('Extract here');
-    expect(items).not.toContain('Extract all…');
+    expect(items).toContain('Extract all…');
     // nothing is selected in this test: the row is there but greyed out
     const row = menu.find((i) => i.kind === 'item' && i.key === 'extract-here');
     expect(row?.kind === 'item' && row.enabled?.()).toBe(false);
@@ -629,5 +630,55 @@ describe('the verbs and custom commands inside an archive', () => {
     ]) {
       expect(row.kind === 'item' && row.enabled?.() !== false).toBe(true);
     }
+  });
+});
+
+describe('the OneDrive items on a row (plan 05 5.4)', () => {
+  const cloud = (name: string, cloudState?: FileEntry['cloudState']): FileEntry => ({
+    ...entry(`C:\\OneDrive\\${name}`, false),
+    cloudState,
+  });
+  const item = (focus: FileEntry, selected: FileEntry[], key: string) => {
+    tabs.active.location = pathLocation('C:\\OneDrive');
+    tabs.active.entries = [...new Set([focus, ...selected])];
+    selection.replaceAll(selected.map((e) => e.path));
+    selection.focused = focus.path;
+    const found = rowMenuFor(focus).find((i) => i.key === key);
+    if (found?.kind !== 'item') throw new Error(`no ${key} row`);
+    return found;
+  };
+
+  afterEach(() => {
+    selection.clear();
+    tabs.active.entries = [];
+    vi.restoreAllMocks();
+  });
+
+  it('are hidden on a file no cloud provider marked', () => {
+    const plain = cloud('plain.txt');
+    expect(item(plain, [plain], 'keep-on-device').visible?.()).toBe(false);
+    expect(item(plain, [plain], 'free-up-space').visible?.()).toBe(false);
+  });
+
+  it('greys out what is already true: Keep on a pinned file, Free up space on an online one', () => {
+    const pinned = cloud('kept.docx', 'pinned');
+    const online = cloud('far.docx', 'online');
+    expect(item(pinned, [pinned], 'keep-on-device').enabled?.()).toBe(false);
+    expect(item(pinned, [pinned], 'free-up-space').enabled?.()).toBe(true);
+    expect(item(online, [online], 'free-up-space').enabled?.()).toBe(false);
+    expect(item(online, [online], 'keep-on-device').enabled?.()).toBe(true);
+    // a mixed selection can do both
+    expect(item(pinned, [pinned, online], 'keep-on-device').enabled?.()).toBe(true);
+  });
+
+  it('run the pin with keep true or false, on the selected cloud rows only', async () => {
+    const local = cloud('here.docx', 'local');
+    const plain = cloud('plain.txt');
+    const spy = vi.spyOn(actions, 'setCloudPin').mockResolvedValue();
+    await item(local, [local, plain], 'keep-on-device').run();
+    expect(spy).toHaveBeenLastCalledWith(true);
+    await item(local, [local, plain], 'free-up-space').run();
+    expect(spy).toHaveBeenLastCalledWith(false);
+    expect(actions.cloudSelection.map((e) => e.name)).toEqual(['here.docx']);
   });
 });

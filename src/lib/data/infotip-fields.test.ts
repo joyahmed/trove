@@ -91,4 +91,14 @@ describe('infotipRowsFor', () => {
   it('drops an empty type rather than rendering a blank row', () => {
     expect(labels(entry({ typeName: '' }))).toEqual(['Size', 'Date created', 'Date modified']);
   });
+
+  it('adds a Status line in plain words for a OneDrive file, and none for a plain one', () => {
+    const status = (e: FileEntry) => infotipRowsFor(e).find((r) => r.key === 'cloud')?.value;
+    expect(status(entry())).toBeUndefined();
+    expect(status(entry({ cloudState: 'online' }))).toBe(
+      'Online only: it downloads when you open it',
+    );
+    expect(status(entry({ cloudState: 'pinned' }))).toBe('Always on this device, even offline');
+    expect(labels(entry({ cloudState: 'local' })).at(-1)).toBe('Status');
+  });
 });

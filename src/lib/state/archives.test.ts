@@ -78,13 +78,30 @@ describe('archives', () => {
     tabs.active.location = { kind: 'path', path: OUT };
   });
 
-  it('canExtract: a .zip and a .7z (Phase 3) yes; a .txt and a .rar (Phase 5) not yet', () => {
+  it('canExtract: a .zip and a .7z (Phase 3) yes; a .txt no; a .rar not off Tauri', () => {
     expect(canExtract('photos.zip')).toBe(true);
     expect(canExtract('PHOTOS.ZIP')).toBe(true);
     expect(canExtract('note.txt')).toBe(false);
+    // nothing injected (a plain browser) = a build that cannot read RAR
     expect(canExtract('old.rar')).toBe(false);
     expect(canExtract('a.7z')).toBe(true);
     expect(canExtract('A.7Z')).toBe(true);
+  });
+
+  it('canExtract: a .rar (Phase 5) only in a build with the `rar` feature', () => {
+    try {
+      vi.stubGlobal('window', { __TROVE_PLATFORM__: { os: 'macos', thisPcLabel: 'x', rar: true } });
+      expect(canExtract('old.rar')).toBe(true);
+      expect(canExtract('OLD.RAR')).toBe(true);
+      expect(canExtract('set.part1.rar')).toBe(true);
+      vi.stubGlobal('window', {
+        __TROVE_PLATFORM__: { os: 'macos', thisPcLabel: 'x', rar: false },
+      });
+      expect(canExtract('old.rar')).toBe(false);
+      expect(canExtract('photos.zip')).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('canExtract: the tar family (Phase 2), compound or short', () => {

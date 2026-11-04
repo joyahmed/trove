@@ -1,8 +1,9 @@
-// The only place the pty commands, the output `Channel` and the "pty:exit" event appear.
+// The only place the pty commands, the output `Channel` and the "pty:exit" / "pty:cwd" events
+// appear.
 // Mirrors src-tauri/src/commands/pty.rs.
 import { Channel, invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import type { PtyExit } from '$lib/types/pty';
+import type { PtyCwd, PtyExit } from '$lib/types/pty';
 
 /**
  * Spawn a shell at `path` ('' = the user profile); output chunks arrive on `onOutput`.
@@ -46,3 +47,10 @@ export const ptyFollow = (sessionId: number, path: string) =>
 /** The shell of a session ended. Returns the unlisten fn. */
 export const onPtyExit = (cb: (e: PtyExit) => void) =>
   listen<PtyExit>('pty:exit', (e) => cb(e.payload));
+
+/**
+ * The shell of a session reported a new folder that exists (OSC 7 / OSC 9;9, parsed in
+ * src-tauri/src/core/pty_cwd.rs). Returns the unlisten fn.
+ */
+export const onPtyCwd = (cb: (e: PtyCwd) => void) =>
+  listen<PtyCwd>('pty:cwd', (e) => cb(e.payload));

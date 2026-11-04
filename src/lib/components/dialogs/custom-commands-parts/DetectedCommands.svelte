@@ -21,7 +21,8 @@
      text in the tooltip. -->
 <script lang="ts">
   import type { Suggestion } from '$lib/state/customize.svelte';
-  import type { DetectedApp, DetectSource } from '$lib/types/shell-verbs';
+  import type { DetectedApp } from '$lib/types/shell-verbs';
+  import { DETECT_EVIDENCE } from '$lib/data/detect-evidence';
   import Glyph from '$lib/components/ui/Glyph.svelte';
 
   interface Props {
@@ -38,17 +39,6 @@
    */
   let open = $state(true);
 
-  /** Say how it was found, in words rather than an enum. An unverifiable guess says so. */
-  const evidence = (source: DetectSource): string =>
-    ({
-      'app-paths': 'registered by its installer',
-      'start-menu': 'found in the Start menu',
-      path: 'found on your PATH',
-      'known-dir': 'found where it usually installs',
-      'wsl-probe': 'needs the Remote-WSL extension in your distro',
-      'desktop-entry': 'found in your app menu',
-    })[source];
-
   /**
    * One line, always. The "you have one like this" clause used to be a second caption, and that
    * one tile then stood a line taller than every other tile on its row — the visible seam in the
@@ -56,7 +46,9 @@
    * well be the broken one; it is just shown on the same line.
    */
   const caption = ({ found, similar }: Suggestion) =>
-    similar ? `${evidence(found.source)} · you have one like this` : evidence(found.source);
+    similar
+      ? `${DETECT_EVIDENCE[found.source]} · you have one like this`
+      : DETECT_EVIDENCE[found.source];
 </script>
 
 {#if detecting}

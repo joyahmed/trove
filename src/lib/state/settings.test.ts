@@ -11,6 +11,17 @@ vi.mock('$lib/api/settings', () => ({
 const written = vi.mocked(writeSettings);
 
 describe('settings sanitize', () => {
+  it('the palette preview is on at 320 px by default, its width clamped (plan 04 4.4)', () => {
+    expect(sanitize({}).palettePreview).toBe(true);
+    expect(sanitize({}).palettePreviewWidth).toBe(320);
+    expect(sanitize({ palettePreview: false }).palettePreview).toBe(false);
+    expect(sanitize({ palettePreview: 'no' }).palettePreview).toBe(true);
+    expect(sanitize({ palettePreviewWidth: 360.4 }).palettePreviewWidth).toBe(360);
+    expect(sanitize({ palettePreviewWidth: 10 }).palettePreviewWidth).toBe(240);
+    expect(sanitize({ palettePreviewWidth: 9000 }).palettePreviewWidth).toBe(400);
+    expect(sanitize({ palettePreviewWidth: 'wide' }).palettePreviewWidth).toBe(320);
+  });
+
   // The chord is stored canonical and lowercase: two spellings of one chord would compare
   // unequal, and the "already registered" check would miss.
   it('normalises the spotlight chord and falls back when it is unusable', () => {
@@ -107,12 +118,20 @@ describe('settings sanitize', () => {
       zoom: 1,
       customCommands: [],
       folderViews: [],
+      tabSets: [],
       previewOpen: false,
+      palettePreview: true,
+      palettePreviewWidth: 320,
       comingFrom: 'native',
       folderSizes: 'local',
       indexOn: true,
       indexDrivesOff: [],
       indexSkipFolders: [],
+      navPane: true,
+      itemCheckboxes: false,
+      compactView: false,
+      showExtensions: true,
+      shortcutOverrides: {},
     });
     expect(sanitize('nope')).toEqual(sanitize(null));
   });
@@ -177,12 +196,20 @@ describe('settings sanitize', () => {
       zoom: 1,
       customCommands: [],
       folderViews: [],
+      tabSets: [],
       previewOpen: false,
+      palettePreview: true,
+      palettePreviewWidth: 320,
       comingFrom: 'native',
       folderSizes: 'local',
       indexOn: true,
       indexDrivesOff: [],
       indexSkipFolders: [],
+      navPane: true,
+      itemCheckboxes: false,
+      compactView: false,
+      showExtensions: true,
+      shortcutOverrides: {},
     });
   });
 
@@ -606,6 +633,40 @@ describe('settings across windows', () => {
     expect(settings.theme).toBe('dark');
     expect('bogus' in settings).toBe(false);
     expect(settings.takeChanges(settings.snapshot())).toEqual({});
+  });
+
+  // M8's tab sets and M7's rebinds ride the same settings:changed patch as every other field:
+  // `takeChanges` is what the window that saved them emits, `applyRemote` what another window does
+  // with it (the Spotlight side is palette-settings.test.ts).
+  it('a saved tab set and a rebind go out in the patch and land in the other window', () => {
+    settings.takeChanges(settings.snapshot());
+    const set = {
+      name: 'Trove work',
+      tabs: ['/Users/alex/a', '/Users/alex/b'],
+      active: 1,
+      savedAt: 1,
+    };
+    settings.tabSets = [set];
+    settings.shortcutOverrides = { 'open-home': 'Ctrl+Alt+J' };
+    const patch = settings.takeChanges(settings.snapshot());
+    expect(patch).toEqual({
+      tabSets: [set],
+      shortcutOverrides: { 'open-home': 'CmdOrCtrl+Alt+J' },
+    });
+
+    // the other window: the patch, as JSON over the event, replaces its fields - and is not echoed
+    settings.tabSets = [];
+    settings.shortcutOverrides = {};
+    settings.takeChanges(settings.snapshot());
+    settings.applyRemote(JSON.parse(JSON.stringify(patch)));
+    expect(settings.tabSets).toEqual([set]);
+    expect(settings.shortcutOverrides).toEqual({ 'open-home': 'Ctrl+Alt+J' });
+    expect(settings.takeChanges(settings.snapshot())).toEqual({});
+
+    // a delete travels too: the emptied list is a change like any other
+    settings.applyRemote({ tabSets: [], shortcutOverrides: {} });
+    expect(settings.tabSets).toEqual([]);
+    expect(settings.shortcutOverrides).toEqual({});
   });
 
   it('applyRemote before load is ignored', () => {

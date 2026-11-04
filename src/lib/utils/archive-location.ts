@@ -6,18 +6,21 @@
 // segment named like an archive (and followed by more) is where the archive ends — so a real
 // FOLDER named `x.zip` cannot be typed into by its path (a rare name; the list still opens it).
 import type { Location } from '$lib/types/location';
-import { onWindows } from '$lib/utils/platform';
+import { onWindows, readsRar } from '$lib/utils/platform';
 import { crumbsOf, parentOf, pathSep, samePath } from '$lib/utils/path';
 
 type Platform = Parameters<typeof onWindows>[0];
 
 export type ArchiveLocation = Extract<Location, { kind: 'archive' }>;
 
-/** Names Trove can browse inside: zip, 7z and the tar family. A bare `x.gz` is one
- * compressed file, not a folder, so it is not one of them (it still extracts). */
+/** Names Trove can browse inside: zip, 7z and the tar family, plus RAR in a build that reads it
+ * (`readsRar`). A bare `x.gz` is one compressed file, not a folder, so it is not one of them
+ * (it still extracts). */
 const BROWSABLE = /\.(zip|7z|tar|tgz|txz|tzst|tar\.gz|tar\.xz|tar\.zst)$/i;
+const RAR = /\.rar$/i;
 
-export const isBrowsableArchive = (name: string): boolean => BROWSABLE.test(name);
+export const isBrowsableArchive = (name: string): boolean =>
+  BROWSABLE.test(name) || (RAR.test(name) && readsRar());
 
 /** `inner` without leading/trailing separators, `/`-separated. */
 const cleanInner = (inner: string) =>
@@ -102,7 +105,7 @@ export const parseArchiveText = (text: string): ArchiveLocation | null => {
     const head = text.slice(0, m.index);
     const rest = text.slice(m.index + m[0].length);
     // `rest` '' = a trailing separator after the archive's name: its top
-    if (head.length > 0 && BROWSABLE.test(nameOf(head))) return archiveLocation(head, rest);
+    if (head.length > 0 && isBrowsableArchive(nameOf(head))) return archiveLocation(head, rest);
   }
   return null;
 };

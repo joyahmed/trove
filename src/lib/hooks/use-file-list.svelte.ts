@@ -12,6 +12,7 @@ import { heldByDialog } from '$lib/state/modal.svelte';
 import { clipboard } from '$lib/state/clipboard.svelte';
 import { isHeader, listing } from '$lib/state/listing.svelte';
 import { tabs } from '$lib/state/tabs.svelte';
+import { search } from '$lib/state/search.svelte';
 import { selection, type Modifiers } from '$lib/state/selection.svelte';
 import { settings } from '$lib/state/settings.svelte';
 import type { FileEntry } from '$lib/types/fs';
@@ -23,7 +24,7 @@ import {
 } from '$lib/utils/type-ahead';
 import { stepAcrossChunks } from '$lib/utils/chunk-step';
 import { stepIconSize, stepView } from '$lib/utils/view-steps';
-import { arrowAxis } from '$lib/data/view-layouts';
+import { arrowAxis, detailsRowPx } from '$lib/data/view-layouts';
 import { onMac } from '$lib/utils/platform';
 import { propertiesShortcut } from '$lib/data/shortcuts';
 import { finderDeleteKey, isFinderOpenKey, isReturnRenameKey } from '$lib/utils/key-label';
@@ -127,6 +128,11 @@ export const useFileList = () => {
   const onRowClick = (entry: FileEntry, e: MouseEvent) => {
     e.stopPropagation();
     if (drag.swallowClick()) return; // the click that ends a drag is not a selection click
+    // Item check boxes: a click on the box toggles the row as Ctrl would, without the key
+    if (settings.itemCheckboxes && (e.target as Element | null)?.closest('[data-check]')) {
+      selection.check(entry.path, order, e.shiftKey);
+      return;
+    }
     selection.click(entry.path, mods(e), order);
   };
 
@@ -316,7 +322,10 @@ export const useFileList = () => {
         break;
       }
       case 'Escape':
-        selection.deselect(); // the focused row stays: Space or an arrow goes on from it
+        // Search results: the first Escape drops the selection, the next one (nothing left to
+        // drop) closes the results and puts the folder back, as Escape in the search box does.
+        if (search.active && selection.count === 0) search.clear();
+        else selection.deselect(); // the focused row stays: Space or an arrow goes on from it
         break;
       case 'F2':
         actions.startRename();
@@ -455,6 +464,10 @@ export const useFileList = () => {
   });
 
   return {
+    /** Compact view's row height for `--spacing-row`, or undefined to leave the token alone */
+    get compactRowPx() {
+      return settings.compactView ? `${detailsRowPx(onMac(), true)}px` : undefined;
+    },
     onZoomWheel,
     contextMenu,
     drag: dragging,

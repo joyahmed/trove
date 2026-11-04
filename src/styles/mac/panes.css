@@ -46,7 +46,7 @@
 
 /* ---------- file list ---------- */
 :root[data-os='macos'] [data-mac='file-list'] {
-  --spacing-row: 24px; /* = MAC_DETAILS_ROW_PX in data/view-layouts.ts */
+  --spacing-row: 24px; /* = MAC_DETAILS_ROW_PX in data/view-layouts.ts; Compact view sets 20px inline */
   font-size: 13px;
 }
 

@@ -7,9 +7,11 @@ import {
   groupByFlyout,
   moreFlyout,
   newFlyout,
+  showFlyout,
   showHiddenItem,
   sortByFlyout,
   viewFlyout,
+  applyToSubfoldersItem,
 } from '$lib/data/menus';
 import { DRAWN_FILE_ICONS, keyedIcon } from '$lib/utils/file-icon';
 import { onMac, onWindows } from '$lib/utils/platform';
@@ -32,6 +34,8 @@ import type { CommandScope, VerbScope } from '$lib/types/shell-verbs';
 import { isDriveRoot } from '$lib/utils/path';
 import { opensAsFolder } from '$lib/utils/app-bundle';
 import { commandHint, keyLabel } from '$lib/utils/key-label';
+import { actionHint } from '$lib/data/action-chords';
+import { loadingRow } from '$lib/data/shell-menu';
 
 /** The row that was right-clicked (the hook focuses it before opening). */
 const focusedEntry = () => listing.rows.find((e) => e.path === selection.focused);
@@ -41,6 +45,8 @@ const focusedIsDir = () => {
   // a folder inside an archive has no real path for the sidebar to pin (its path holds a NUL)
   return e !== undefined && opensAsFolder(e) && !isArchivePath(e.path);
 };
+/** A row OneDrive marked (`FileEntry.cloudState`): it gets Keep on this device / Free up space. */
+const focusedIsCloud = () => focusedEntry()?.cloudState !== undefined;
 const focusedPinned = () => {
   const e = focusedEntry();
   return e !== undefined && settings.pins.includes(e.path);
@@ -229,6 +235,14 @@ export const rowMenu: MenuItem[] = [
     enabled: () => actions.hasSelection,
     run: actions.copyAsPath,
   },
+  {
+    kind: 'item',
+    key: 'paste-paths-terminal',
+    label: 'Paste paths into terminal',
+    glyph: 'terminal',
+    enabled: () => actions.hasSelection,
+    run: actions.pastePathsIntoTerminal,
+  },
   compressToFlyout,
   {
     kind: 'item',
@@ -236,6 +250,13 @@ export const rowMenu: MenuItem[] = [
     label: 'Extract here',
     enabled: () => actions.canExtractHere,
     run: actions.extractHere,
+  },
+  {
+    kind: 'item',
+    key: 'extract-all',
+    label: 'Extract all…',
+    enabled: () => actions.canExtractHere,
+    run: actions.extractAll,
   },
   pasteItem,
   {
@@ -269,6 +290,26 @@ export const rowMenu: MenuItem[] = [
     },
     enabled: () => actions.hasSelection,
     run: actions.deletePermanently,
+  },
+  // OneDrive (any Cloud Files provider): only on a row the provider marked, as in Explorer
+  { kind: 'divider', key: 'd-cloud', visible: focusedIsCloud },
+  {
+    kind: 'item',
+    key: 'keep-on-device',
+    label: 'Keep on this device',
+    glyph: 'downloads',
+    visible: focusedIsCloud,
+    enabled: () => actions.cloudSelection.some((e) => e.cloudState !== 'pinned'),
+    run: () => actions.setCloudPin(true),
+  },
+  {
+    kind: 'item',
+    key: 'free-up-space',
+    label: 'Free up space',
+    glyph: 'cloud',
+    visible: focusedIsCloud,
+    enabled: () => actions.cloudSelection.some((e) => e.cloudState !== 'online'),
+    run: () => actions.setCloudPin(false),
   },
   { kind: 'divider', key: 'd2', visible: focusedIsDir },
   {
@@ -319,6 +360,7 @@ export const backgroundMenu: MenuItem[] = [
   },
   { kind: 'divider', key: 'd1' },
   viewFlyout,
+  showFlyout,
   showHiddenItem,
   { kind: 'divider', key: 'd-arrange' },
   // ⭐ Explorer's own answer to a right-click on empty space, and the reason it is here: the
@@ -329,12 +371,16 @@ export const backgroundMenu: MenuItem[] = [
   // and both are the very same items the toolbar shows, so the two doors cannot drift apart.
   sortByFlyout,
   groupByFlyout,
+  applyToSubfoldersItem,
   { kind: 'divider', key: 'd2' },
   {
     kind: 'item',
     key: 'terminal',
     label: 'Open in Terminal',
     glyph: 'terminal',
+    get shortcut() {
+      return actionHint('open-terminal');
+    },
     // an archive's inside has no real folder to open (`openTerminal` returns early there)
     enabled: () => actions.inFolder,
     run: actions.openTerminal,
@@ -417,10 +463,16 @@ export const dynamicTail = (
   path: string,
   paths: string[],
 ): MenuItem[] => {
+  const onDisk = path !== '' && !isArchivePath(path);
+  // On Windows the shell's own menu (IContextMenu: 7-Zip, Send to, Share …) arrives into the
+  // slot after the menu opens (plan 08 D.1); `use-context-menu` fills it, minus every row
+  // already here. The registry verbs stay: they are cached, so they paint at once, and a shell
+  // that misses its deadline then costs only the extras. Mac and Linux get no slot.
+  const live = onWindows() && onDisk;
   const verbs = shellVerbs.forScope(verbScope);
   const commands = shellVerbs.commandsFor(commandScope, path);
-  if (verbs.length === 0 && commands.length === 0) return [];
-  const onDisk = path !== '' && !isArchivePath(path);
+  const slot: MenuItem[] = live ? [{ kind: 'divider', key: 'd-shell' }, loadingRow()] : [];
+  if (verbs.length === 0 && commands.length === 0) return slot;
   const enabled = () => onDisk;
   return [
     { kind: 'divider', key: 'd-dynamic' },
@@ -440,6 +492,7 @@ export const dynamicTail = (
       enabled,
       run: () => (onDisk ? shellVerbs.runCommand(c, { path, paths }) : undefined),
     })),
+    ...slot,
   ];
 };
 

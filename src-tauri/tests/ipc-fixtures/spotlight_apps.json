@@ -1,0 +1,23 @@
+[
+  [
+    {
+      "aumid": "Files.App",
+      "lnkPath": "C:\\Files.lnk",
+      "name": "Files",
+      "openWith": {
+        "args": "-x",
+        "program": "files.exe"
+      },
+      "path": "C:\\",
+      "target": "C:\\files.exe"
+    },
+    {
+      "aumid": "",
+      "lnkPath": "",
+      "name": "",
+      "openWith": null,
+      "path": "",
+      "target": ""
+    }
+  ]
+]

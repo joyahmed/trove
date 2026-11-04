@@ -12,6 +12,7 @@
   import TerminalHost from '$lib/components/terminal/TerminalHost.svelte';
   import StatusBar from './StatusBar.svelte';
   import Toasts from './Toasts.svelte';
+  import FindAnything from '$lib/components/palette/FindAnything.svelte';
 
   const shell = useShell();
 </script>
@@ -40,7 +41,9 @@
   <NavBar />
   <div class="bg-layer flex min-h-0 flex-1 flex-col">
     <div class="flex min-h-0 flex-1">
-      <Sidebar />
+      {#if shell.navPane}
+        <Sidebar />
+      {/if}
       {#if shell.showList}
         <FileList />
       {:else if shell.showFolderGallery}
@@ -56,6 +59,10 @@
   </div>
   <Toasts />
 </div>
+
+<!-- Find anything (Ctrl+K / ⌘K): here, not in the search box, which a narrow window (or a large
+     text size) takes off the toolbar - ⌘K and the "…" menu's row must still open it. -->
+<FindAnything />
 
 <!-- A yes/no question (Shift+Delete) is rare: mounted only while one is pending (CONTRIBUTING § 5). -->
 {#if shell.confirm}
@@ -147,5 +154,27 @@
     <SettingsDialog />
   {:catch}
     <!-- the chunk did not load: the question was given up (use-shell lazyDialog) -->
+  {/await}
+{/if}
+
+<!-- Undo history (Edit ▸ History, plan 08 F): a click away, never at first paint.
+     ⚠️ The size rule is COPIED from UndoHistoryDialog. Change it there and change it here. -->
+{#if shell.undoHistoryOpen}
+  {#await shell.lazyDialog(import('$lib/components/dialogs/UndoHistoryDialog.svelte'), shell.giveUp.undoHistory)}
+    <div class="z-dialog fixed inset-0 grid place-items-center bg-black/40">
+      <div
+        class="bg-layer border-divider rounded-dialog shadow-flyout flex w-[min(560px,calc(100vw-2rem))] flex-col gap-3 border p-5"
+      >
+        <div class="bg-subtle-selected h-6 w-1/3 rounded-xs"></div>
+        <div class="bg-subtle-selected h-4 w-full rounded-xs"></div>
+        <div class="bg-subtle-selected h-12 w-full rounded-xs"></div>
+        <div class="bg-subtle-selected h-12 w-full rounded-xs"></div>
+        <div class="bg-subtle-selected h-12 w-full rounded-xs"></div>
+      </div>
+    </div>
+  {:then { default: UndoHistoryDialog }}
+    <UndoHistoryDialog />
+  {:catch}
+    <!-- the chunk did not load: the panel was given up (use-shell lazyDialog) -->
   {/await}
 {/if}

@@ -18,6 +18,38 @@
   const fitCrumbs: Attachment<HTMLElement> = (row) => watchCrumbFit(row);
 </script>
 
+<!-- The separator after crumb `left`: a button that lists that folder's subfolders (plan 06 § 6.4,
+     Explorer's chevron). Before the first crumb, or after a place or an archive, there is nothing
+     to list and it stays a plain glyph. -->
+{#snippet chevron(left: number)}
+  {#if bar.canListCrumb(left)}
+    {@const name = bar.crumbs[left]?.label === HOME_MARK ? 'Home' : bar.crumbs[left]?.label}
+    <button
+      type="button"
+      class="rounded-control hover:bg-subtle-hover active:bg-subtle-pressed mx-0.5 grid h-6 w-4 shrink-0 place-items-center {bar.crumbMenuOf ===
+      left
+        ? 'bg-subtle-selected'
+        : ''}"
+      title="Folders in {name}"
+      aria-label="Folders in {name}"
+      aria-haspopup="menu"
+      aria-expanded={bar.crumbMenuOf === left}
+      data-menu-toggle
+      data-crumb-chevron
+      onmousedown={(e) => e.preventDefault()}
+      onclick={(e) => bar.onCrumbChevron(left, e)}
+    >
+      <Glyph
+        name={bar.crumbMenuOf === left ? 'chevronDown' : 'chevronRight'}
+        size={9}
+        class="text-text-secondary"
+      />
+    </button>
+  {:else}
+    <Glyph name="chevronRight" size={9} class="text-text-secondary mx-1.5 shrink-0" />
+  {/if}
+{/snippet}
+
 <!-- The path ribbon (plan 12 G.1): 36px, rounded, an icon for where the path lives, then the
      crumbs — `~` for the user's home. Chevron separators, not `/`: on Windows a `/` between
      `C:` and `Users` reads as a path nobody can paste. -->
@@ -61,7 +93,7 @@
           {@const last = i === bar.crumbs.length - 1}
           <span data-crumb class="flex items-center {last ? 'min-w-0' : 'shrink-0'}">
             {#if crumb.sepBefore}
-              <Glyph name="chevronRight" size={9} class="text-text-secondary mx-1.5 shrink-0" />
+              {@render chevron(i - 1)}
             {/if}
             <button
               type="button"
@@ -84,7 +116,7 @@
         {/each}
         {#if crumbTail()}
           <span data-crumb-tail class="flex shrink-0">
-            <Glyph name="chevronRight" size={9} class="text-text-secondary mx-1.5 shrink-0" />
+            {@render chevron(bar.crumbs.length - 1)}
           </span>
         {/if}
       </div>
@@ -110,3 +142,4 @@
 </div>
 
 <Menu menu={bar.historyMenu} items={bar.historyItems} />
+<Menu menu={bar.crumbMenu} items={bar.crumbItems} />

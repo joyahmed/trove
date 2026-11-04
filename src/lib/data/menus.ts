@@ -23,14 +23,29 @@ import {
 } from '$lib/utils/view-steps';
 import { tabs } from '$lib/state/tabs.svelte';
 import { terminal } from '$lib/state/terminal.svelte';
-import { commandHint, hiddenItemsHint, keyLabel } from '$lib/utils/key-label';
+import { commandHint, keyLabel } from '$lib/utils/key-label';
 import { propertiesLabel } from '$lib/utils/platform';
+import { nameOf } from '$lib/utils/path';
 import { opensAsFolder } from '$lib/utils/app-bundle';
+import { VIEW_STEP_ACTIONS, actionHint, viewStepChord } from '$lib/data/action-chords';
+import { hostStyle } from '$lib/state/coming-from.svelte';
+
+/** The Sort by rows that have a chord (plan 08 A1), by column key → palette action. */
+const SORT_ACTIONS: Partial<Record<SortKey, string>> = {
+  name: 'sort-name',
+  modifiedMs: 'sort-modified',
+  ext: 'sort-type',
+  size: 'sort-size',
+};
 
 const sortItem = (key: SortKey, label: string): MenuItem => ({
   kind: 'item',
   key,
   label,
+  get shortcut() {
+    const action = SORT_ACTIONS[key];
+    return action === undefined ? undefined : actionHint(action);
+  },
   checked: () => tabs.active.sortKey === key,
   run: () => tabs.active.sortBy(key),
 });
@@ -136,11 +151,17 @@ export const columnsMenu: MenuItem[] = fileColumns.map((c) => ({
   run: () => settings.toggleColumn(c.key),
 }));
 
-const viewItem = (step: ViewStep): MenuItem => ({
+const viewItem = (step: ViewStep, i: number): MenuItem => ({
   kind: 'item',
   key: `${step.view}-${step.iconSize}`,
   label: stepLabel(step),
   glyph: stepGlyph(step),
+  get shortcut() {
+    const action = VIEW_STEP_ACTIONS[i];
+    return action === undefined
+      ? keyLabel(viewStepChord(i + 1), hostStyle() === 'mac')
+      : actionHint(action);
+  },
   checked: () => isStep(step, tabs.active),
   run: () => tabs.active.setView(step.view, stepIconSize(step)),
 });
@@ -160,16 +181,58 @@ export const viewFlyout: MenuItem = {
   items: viewModeItems,
 };
 
+/** Explorer's "Apply to folders": this folder's sort, grouping and layout for everything below it. */
+export const applyToSubfoldersItem: MenuItem = {
+  kind: 'item',
+  key: 'apply-view-subfolders',
+  label: 'Apply view to subfolders',
+  enabled: () => tabs.active.isFolder,
+  run: () => {
+    tabs.active.applyViewToSubfolders();
+    actions.notify(`This view now applies to every folder inside ${nameOf(tabs.active.path)}`);
+  },
+};
+
 export const showHiddenItem: MenuItem = {
   kind: 'item',
   key: 'hidden',
   label: 'Show hidden items',
   glyph: 'showHidden',
   get shortcut() {
-    return hiddenItemsHint();
+    return actionHint('toggle-hidden');
   },
   checked: () => settings.showHidden,
   run: () => (settings.showHidden = !settings.showHidden),
+};
+
+/** The view toggles Explorer keeps under View ▸ Show, in its order, besides hidden items: one `settings` boolean each. */
+type ShowToggleField = 'showExtensions' | 'compactView' | 'itemCheckboxes' | 'navPane';
+const SHOW_TOGGLES: { key: string; label: string; field: ShowToggleField }[] = [
+  { key: 'compact-view', label: 'Compact view', field: 'compactView' },
+  { key: 'nav-pane', label: 'Navigation pane', field: 'navPane' },
+  { key: 'item-checkboxes', label: 'Item check boxes', field: 'itemCheckboxes' },
+  { key: 'show-extensions', label: 'File name extensions', field: 'showExtensions' },
+];
+
+/**
+ * Explorer's "View ▸ Show": the view toggles as checks, then hidden items, so the right-click
+ * menu grows by one line. The same `settings` fields the Settings dialog's Appearance rows set.
+ */
+export const showFlyout: MenuItem = {
+  kind: 'submenu',
+  key: 'show',
+  label: 'Show',
+  glyph: 'view',
+  items: [
+    ...SHOW_TOGGLES.map(({ key, label, field }): MenuItem => ({
+      kind: 'item',
+      key,
+      label,
+      checked: () => settings[field],
+      run: () => (settings[field] = !settings[field]),
+    })),
+    showHiddenItem,
+  ],
 };
 
 /** The right-side panes as radio-like checks: opening one closes the other. */
@@ -188,7 +251,7 @@ export const paneItems: MenuItem[] = [
     label: 'Details pane',
     // off a Mac the chord is Properties' too, and the Properties row beside it keeps the hint
     get shortcut() {
-      const hint = commandHint('detailsPane');
+      const hint = actionHint('toggle-details');
       return hint === commandHint('properties') ? undefined : hint;
     },
     checked: () => panes.isOpen('details'),
@@ -211,7 +274,10 @@ export const newMenu: MenuItem[] = newItemKinds.map((kind, i) => ({
   key: kind.key,
   label: kind.label,
   glyph: kind.glyph,
-  shortcut: i === 0 ? keyLabel('Ctrl+Shift+N') : undefined,
+  get shortcut() {
+    if (i === 0) return actionHint('new-folder');
+    return kind.key === 'text' ? actionHint('new-text-file') : undefined;
+  },
   enabled: () => actions.inFolder,
   run: () => actions.newItem(kind),
 }));
@@ -262,7 +328,9 @@ export const moreMenu: MenuItem[] = [
       return undo.undoLabel;
     },
     glyph: 'undo',
-    shortcut: keyLabel('Ctrl+Z'),
+    get shortcut() {
+      return actionHint('undo');
+    },
     enabled: () => undo.canUndo,
     run: actions.undo,
   },
@@ -274,7 +342,7 @@ export const moreMenu: MenuItem[] = [
     },
     glyph: 'redo',
     get shortcut() {
-      return commandHint('redo');
+      return actionHint('redo');
     },
     enabled: () => undo.canRedo,
     run: actions.redo,
@@ -356,6 +424,9 @@ export const moreMenu: MenuItem[] = [
     kind: 'item',
     key: 'invert-selection',
     label: 'Invert selection',
+    get shortcut() {
+      return actionHint('invert-selection');
+    },
     enabled: () => actions.inFolder,
     run: () => selection.invert(allRows()),
   },
@@ -365,6 +436,9 @@ export const moreMenu: MenuItem[] = [
     key: 'terminal',
     label: 'Open in Terminal',
     glyph: 'terminal',
+    get shortcut() {
+      return actionHint('open-terminal');
+    },
     enabled: () => actions.inFolder,
     run: actions.openTerminal,
   },
@@ -373,7 +447,9 @@ export const moreMenu: MenuItem[] = [
     kind: 'item',
     key: 'settings',
     label: 'Settings…',
-    shortcut: keyLabel('Ctrl+,'),
+    get shortcut() {
+      return actionHint('open-settings');
+    },
     run: () => settingsDialog.show(),
   },
   { kind: 'divider', key: 'd-zoom' },

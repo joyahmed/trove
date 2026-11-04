@@ -24,7 +24,7 @@ export type CommandScope = 'file' | 'folder' | 'background' | 'wsl';
  * "we found Code" and "we guessed where Zed usually lives" are not the same claim.
  */
 export type DetectSource =
-  'app-paths' | 'start-menu' | 'path' | 'known-dir' | 'wsl-probe' | 'desktop-entry';
+  'app-paths' | 'start-menu' | 'path' | 'known-dir' | 'wsl-distro' | 'desktop-entry';
 
 /** A ready-made entry `detect_common_commands` offers; adding it is still the person's click. */
 export interface DetectedApp {
@@ -45,4 +45,24 @@ export interface CustomCommand {
   /** one line; placeholders `%path%` `%paths%` `%parent%` `%name%` `%linuxpath%` `%distro%` */
   args: string;
   scope: CommandScope[];
+}
+
+/** One row of Windows' own right-click menu (core/shell_menu.rs `ShellMenuItem`). */
+export interface ShellMenuItem {
+  /** the command id to run it by; 0 for a separator or a submenu row */
+  id: number;
+  label: string;
+  /** the canonical verb (`open`, `copy`, `properties` …) when the handler names one */
+  verb: string | null;
+  enabled: boolean;
+  separator: boolean;
+  children: ShellMenuItem[];
+  /** `menu/<hash>`: the item's bitmap over the icon protocol */
+  iconKey: string | null;
+}
+
+/** One query's answer; `token` names the live menu an invoke targets. */
+export interface ShellMenu {
+  token: number;
+  items: ShellMenuItem[];
 }

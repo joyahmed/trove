@@ -9,6 +9,13 @@ describe('Tiles lines', () => {
   it('a file says its type and its size', () => {
     expect(tileLines(file)).toEqual(['Spreadsheet', '12 KB']);
   });
+  it('an image the platform cannot draw says "HEIC · no preview", not its size (as the Icons tile)', () => {
+    const heic = { name: 'x.heic', isDir: false, ext: 'heic', size: 2, modifiedMs: 0 };
+    expect(tileLines(heic, 'drawn', false)).toEqual(['Image', 'HEIC · no preview']);
+    expect(tileLines(heic, 'drawn', true)).toEqual(['Image', '2 B']);
+    expect(tileLines({ ...heic, name: 'x.png', ext: 'png' }, 'drawn', false)[1]).toBe('2 B');
+    expect(tileLines(heic)[1]).toBe('2 B');
+  });
   it('a folder says Folder and no size', () => {
     expect(tileLines(folder)).toEqual(['Folder']);
   });

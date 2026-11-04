@@ -9,11 +9,12 @@ import { selection } from './selection.svelte';
 import { settings } from './settings.svelte';
 import { tabs } from './tabs.svelte';
 import { transfers } from './transfers.svelte';
+import { confirm } from './confirm.svelte';
 import { pathLocation } from '$lib/utils/location';
 import { archiveLocation } from '$lib/utils/archive-location';
 import { dropPathOf } from '$lib/utils/app-bundle';
 import * as fs from '$lib/api/fs';
-import { archiveConflicts, startExtract, startOpenInner } from '$lib/api/archive';
+import { archiveConflicts, startExtract, startExtractHere, startOpenInner } from '$lib/api/archive';
 import { clipboardReadPaths, clipboardWritePaths } from '$lib/api/clipboard';
 import type { FileEntry } from '$lib/types/fs';
 
@@ -227,5 +228,84 @@ describe('paste of an archive copy into a real folder', () => {
     await actions.paste();
     expect(startExtract).not.toHaveBeenCalled();
     expect(clipboard.archive).toBeNull();
+  });
+});
+
+describe('Extract all…', () => {
+  const ZIP2 = 'E:\\in\\photos.zip';
+  beforeEach(() => {
+    confirm.pending = null;
+    tabs.active.location = pathLocation('E:\\in');
+    tabs.active.entries = [row('photos.zip', ZIP2, false)];
+    selection.replaceAll([ZIP2]);
+  });
+
+  it('is offered for one selected archive only', () => {
+    expect(actions.canExtractHere).toBe(true);
+    selection.clear();
+    expect(actions.canExtractHere).toBe(false);
+  });
+
+  it('asks for a folder, starting at the archive folder, and extracts the whole archive there', async () => {
+    vi.mocked(fs.pathKind).mockResolvedValue('dir');
+    const done = actions.extractAll();
+    await settle();
+    expect(confirm.pending?.title).toBe('Extract all…');
+    expect(confirm.text).toBe('E:\\in');
+    confirm.text = 'F:\\stick';
+    confirm.answer(true);
+    await done;
+    await settle();
+    expect(fs.pathKind).toHaveBeenCalledWith('F:\\stick');
+    expect(archiveConflicts).toHaveBeenCalledWith(ZIP2, 'F:\\stick', null);
+    expect(vi.mocked(startExtract).mock.calls[0].slice(0, 3)).toEqual([ZIP2, 'F:\\stick', null]);
+    expect(startExtractHere).not.toHaveBeenCalled();
+  });
+
+  it('Cancel starts nothing', async () => {
+    const done = actions.extractAll();
+    await settle();
+    confirm.answer(false);
+    await done;
+    expect(startExtract).not.toHaveBeenCalled();
+    expect(fs.pathKind).not.toHaveBeenCalled();
+  });
+
+  it('a path that is not typed in full is refused by the box itself', async () => {
+    const done = actions.extractAll();
+    await settle();
+    confirm.text = 'stick';
+    confirm.answer(true);
+    expect(confirm.pending).not.toBeNull();
+    expect(confirm.problem).toMatch(/full path/);
+    confirm.answer(false);
+    await done;
+    expect(startExtract).not.toHaveBeenCalled();
+  });
+
+  it('a path that is not an existing folder asks again and extracts nothing yet', async () => {
+    vi.mocked(fs.pathKind).mockResolvedValueOnce('missing');
+    const done = actions.extractAll();
+    await settle();
+    confirm.text = 'F:\\nope';
+    confirm.answer(true);
+    await settle();
+    expect(startExtract).not.toHaveBeenCalled();
+    expect(confirm.pending?.title).toBe('Extract all…');
+    expect(confirm.text).toBe('F:\\nope');
+    confirm.answer(false);
+    await done;
+  });
+
+  it('conflicts in the folder raise the Replace / Skip / Keep both question', async () => {
+    vi.mocked(fs.pathKind).mockResolvedValue('dir');
+    vi.mocked(archiveConflicts).mockResolvedValueOnce([{ name: 'a.txt', isDir: false } as never]);
+    const done = actions.extractAll();
+    await settle();
+    confirm.answer(true);
+    await done;
+    expect(startExtract).not.toHaveBeenCalled();
+    expect(transfers.pending?.destination).toBe('E:\\in');
+    expect(transfers.pending?.extract).toEqual({ archive: ZIP2, entries: null });
   });
 });

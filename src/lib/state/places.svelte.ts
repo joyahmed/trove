@@ -28,7 +28,10 @@ import {
   knownFolders as fetchKnownFolders,
   oneDriveRoot as fetchOneDriveRoot,
 } from '$lib/api/shell';
+import { cloudSyncStatus } from '$lib/api/fs';
 import { logError } from '$lib/api/log';
+import { network } from '$lib/state/network.svelte';
+import type { SyncStatus } from '$lib/types/fs';
 import type { DriveInfo, KnownFolder } from '$lib/types/shell';
 
 class PlacesState {
@@ -36,6 +39,8 @@ class PlacesState {
   drives = $state<DriveInfo[]>([]);
   /** `C:\Users\alex\OneDrive` when the client is set up; null otherwise */
   oneDriveRoot = $state<string | null>(null);
+  /** the OneDrive client's sync state for its root (the sidebar row's glyph); null when it says none */
+  oneDriveSync = $state<SyncStatus | null>(null);
 
   /**
    * Where `FOLDERID_Downloads` actually is; null until the folders land (see the note above —
@@ -141,6 +146,8 @@ class PlacesState {
     const generation = ++this.#drivesGeneration;
     const current = () => generation === this.#drivesGeneration;
     this.drivesLoading = true;
+    // which letters are mapped shares: one cheap OS read, beside the drives, for the Network group
+    void network.loadMapped();
     try {
       const drives = await fetchDrives();
       if (!current()) return;
@@ -167,6 +174,9 @@ class PlacesState {
     try {
       const root = await fetchOneDriveRoot();
       if (current()) this.oneDriveRoot = root;
+      // the glyph is decoration: a failure leaves the row as it was, without one
+      const sync = root ? await cloudSyncStatus(root).catch(() => null) : null;
+      if (current()) this.oneDriveSync = sync;
     } catch (e) {
       logError('places.oneDriveRoot', e);
       if (current()) this.oneDriveRoot = null;

@@ -13,6 +13,7 @@ import type { FileEntry } from '$lib/types/fs';
 import { fmtDate, fmtSize } from '$lib/utils/format';
 import { locationLabel } from '$lib/utils/location';
 import { parentOf } from '$lib/utils/path';
+import { tildeHome } from '$lib/utils/path-display';
 import { archiveRowFolder, archiveRowWhere } from '$lib/utils/archive-location';
 import { previewPlaceIcon } from './use-preview-pane-icon';
 import { shortKindOf } from '$lib/utils/short-kind';
@@ -20,17 +21,19 @@ import { shortKindOf } from '$lib/utils/short-kind';
 export interface PreviewFact {
   label: string;
   value: string;
+  /** printed text when it differs from the tooltip `value` (home as `~`) */
+  shown?: string;
 }
 
 /** The pane's label/value rows from what the listing already knows (no extra stat). */
-export const previewFacts = (e: FileEntry): PreviewFact[] => {
+export const previewFacts = (e: FileEntry, home: string | null = null): PreviewFact[] => {
   const facts: PreviewFact[] = [{ label: 'Type', value: shortKindOf(e) }];
   if (!e.isDir) facts.push({ label: 'Size', value: fmtSize(e.size) });
   if (e.createdMs !== null) facts.push({ label: 'Created', value: fmtDate(e.createdMs) });
   if (e.modifiedMs !== null) facts.push({ label: 'Modified', value: fmtDate(e.modifiedMs) });
   // inside an archive: `a.zip › docs`, as the address bar says it (not the zip's own folder)
   const where = archiveRowWhere(e.path) ?? parentOf(e.path);
-  if (where) facts.push({ label: 'Location', value: where });
+  if (where) facts.push({ label: 'Location', value: where, shown: tildeHome(where, home) });
   return facts;
 };
 

@@ -8,6 +8,7 @@ import { cancelSearch, onSearchResults, startSearch } from '$lib/api/search';
 import { indexSearch } from '$lib/api/palette';
 import { wslRunningDistros } from '$lib/api/wsl';
 import { emptyChips, type SearchChips } from '$lib/data/search-filters';
+import { guardedFolders } from '$lib/state/guarded-folders.svelte';
 import { places } from '$lib/state/places.svelte';
 import { settings } from '$lib/state/settings.svelte';
 import { tabs } from '$lib/state/tabs.svelte';
@@ -74,6 +75,8 @@ class SearchState {
   /** the folders walked: `[folder]`, or every drive root from a place */
   roots = $state.raw<string[]>([]);
   query = $state.raw<SearchQuery>(NO_QUERY);
+  /** Mac: unopened personal folders (Desktop, Documents…) this search left out, for "Not searched" */
+  skippedGuarded = $state.raw<string[]>([]);
   /** bumped when `#results` has grown; what makes the getter below reactive */
   #version = $state(0);
   #results: FileEntry[] = [];
@@ -144,6 +147,7 @@ class SearchState {
     for (const e of batch.entries) this.#results.push(e);
     this.scanned = batch.scanned;
     if (batch.error) this.error = batch.error;
+    if (batch.skippedGuarded?.length) this.skippedGuarded = batch.skippedGuarded;
     const finished = batch.done || batch.cancelled;
     if (finished) this.running = false;
     if (batch.entries.length > 0 || finished) this.#announce(finished);
@@ -178,17 +182,20 @@ class SearchState {
     this.#retire();
     this.scanned = 0;
     this.error = null;
+    this.skippedGuarded = [];
     this.active = true;
     this.running = true;
     // a name-only query is answered from the index, scoped to the folders searched; any filter,
     // an index still building (or failing), or roots it does not cover keep the walker
     if (isNameOnly(this.query)) {
-      const hits = await this.#fromIndex(this.query.text, roots);
+      const answer = await this.#fromIndex(this.query.text, roots);
       if (!current()) return;
-      if (hits) {
+      if (answer) {
+        const { hits, skipped } = answer;
         this.running = false;
         this.#results = hits;
         this.scanned = hits.length;
+        this.skippedGuarded = skipped;
         this.#announce(true);
         return;
       }
@@ -222,16 +229,24 @@ class SearchState {
   }
 
   /** Index hits under `roots`, or null when the index cannot answer this search. */
-  async #fromIndex(text: string, roots: string[]): Promise<FileEntry[] | null> {
+  async #fromIndex(
+    text: string,
+    roots: string[],
+  ): Promise<{ hits: FileEntry[]; skipped: string[] } | null> {
     try {
       const a = await indexSearch(text, INDEX_MAX);
       if (!a || !a.ready || a.roots.length === 0) return null;
       // a cut list is never shown as the whole answer: the walker finds the rest
       if (a.total > a.hits.length) return null;
       if (!roots.every((r) => a.roots.some((ir) => under(r, ir)))) return null;
-      return a.hits.filter(
+      const hits = a.hits.filter(
         (h) => (settings.showHidden || !h.isHidden) && roots.some((r) => under(h.path, r)),
       );
+      // only the skipped folders inside (or holding) what this search covers
+      const skipped = (a.skippedGuarded ?? []).filter((g) =>
+        roots.some((r) => under(g, r) || under(r, g)),
+      );
+      return { hits, skipped };
     } catch {
       return null;
     }
@@ -240,6 +255,12 @@ class SearchState {
   /** The chips changed: the same text again with the new filters. */
   restart() {
     if (this.active) void this.start(this.text);
+  }
+
+  /** Allow the personal folders this search left out (macOS asks), then search again. */
+  async allowGuarded() {
+    const opened = await guardedFolders.allow(this.skippedGuarded);
+    if (opened.length > 0) this.restart();
   }
 
   /** Stop a running search; what arrived stays listed. */
@@ -265,6 +286,7 @@ class SearchState {
     this.#retire();
     this.scanned = 0;
     this.error = null;
+    this.skippedGuarded = [];
   }
 }
 

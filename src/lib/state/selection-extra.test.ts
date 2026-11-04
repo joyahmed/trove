@@ -43,4 +43,20 @@ describe('selection: Space and rubber-band helpers', () => {
     selection.invert(order);
     expect([...selection.paths].sort()).toEqual(['b', 'd']);
   });
+
+  it('check toggles like Ctrl: two checks select both, a third on one removes it', () => {
+    selection.check('b', order);
+    selection.check('d', order);
+    expect([...selection.paths].sort()).toEqual(['b', 'd']);
+    selection.check('b', order);
+    expect([...selection.paths]).toEqual(['d']);
+    expect(selection.focused).toBe('b');
+  });
+
+  it('check with Shift adds the range from the anchor and keeps what was checked', () => {
+    selection.check('a', order);
+    selection.check('c', order);
+    selection.check('e', order, true);
+    expect([...selection.paths].sort()).toEqual(['a', 'c', 'd', 'e']);
+  });
 });

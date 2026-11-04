@@ -1,6 +1,7 @@
 // The terminal pane's reactivity: wires the emulator component to the PTY session — output
 // through the sink, input through `write`, size through `resize` — and spawns the shell once
 // the emulator reports its first size. Only this hook and the pane import `@wterm/*`.
+import { TERMINAL_FOLLOW_NOTE } from '$lib/data/terminal-follow-note';
 import type { TerminalHandle } from '@wterm/svelte';
 import { terminal } from '$lib/state/terminal.svelte';
 import { theme as appTheme } from '$lib/state/theme.svelte';
@@ -72,6 +73,7 @@ export const useTerminalPane = () => {
     get follow() {
       return terminal.follow;
     },
+    followNote: TERMINAL_FOLLOW_NOTE,
     set follow(v: boolean) {
       terminal.follow = v;
     },

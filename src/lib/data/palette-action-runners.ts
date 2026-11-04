@@ -8,7 +8,10 @@ import { panes } from '$lib/state/panes.svelte';
 import { selection } from '$lib/state/selection.svelte';
 import { settings } from '$lib/state/settings.svelte';
 import { settingsDialog } from '$lib/state/settings-dialog.svelte';
+import { tabSets } from '$lib/state/tab-sets.svelte';
 import { tabs } from '$lib/state/tabs.svelte';
+import { undoHistory } from '$lib/state/undo-history.svelte';
+import { TAB_SET_VERBS, tabSetActionKey } from '$lib/utils/tab-sets';
 import { HOME, RECYCLE_BIN, THIS_PC } from '$lib/utils/location';
 
 export const paletteActionRunners: Record<string, () => unknown> = {
@@ -24,9 +27,11 @@ export const paletteActionRunners: Record<string, () => unknown> = {
   cut: () => actions.cut(),
   copy: () => actions.copy(),
   paste: () => actions.paste(),
+  'paste-paths-terminal': () => actions.pastePathsIntoTerminal(),
   rename: () => actions.startRename(),
   undo: () => actions.undo(),
   redo: () => actions.redo(),
+  'undo-history': () => undoHistory.show(),
   'select-all': () => selection.selectAll(listing.shown.map((e) => e.path)),
   'invert-selection': () => selection.invert(listing.rows.map((e) => e.path)),
   'sort-name': () => tabs.active.sortTo('name'),
@@ -47,5 +52,20 @@ export const paletteActionRunners: Record<string, () => unknown> = {
   'cascade-windows': () => arrangeWindows('cascade'),
   'stack-windows': () => arrangeWindows('stacked'),
   'windows-side-by-side': () => arrangeWindows('side-by-side'),
+  'save-tab-set': () => tabSets.saveAs(),
   'open-settings': () => settingsDialog.show(),
+};
+
+/** What a palette key runs: a fixed action, or one of a saved tab set's rows. */
+export const runPaletteAction = (key: string) => {
+  const fixed = paletteActionRunners[key];
+  if (fixed) return fixed();
+  for (const verb of TAB_SET_VERBS) {
+    const prefix = tabSetActionKey(verb, '');
+    if (!key.startsWith(prefix)) continue;
+    const name = key.slice(prefix.length);
+    if (verb === 'open') return tabSets.open(name);
+    if (verb === 'rename') return tabSets.rename(name);
+    return tabSets.remove(name);
+  }
 };

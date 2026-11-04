@@ -2,6 +2,7 @@
      mono meta line, Open / Reveal, and a facts list; else a summary of the folder or the
      selection. Mounted lazily by PaneHost on Alt+P / View › Preview pane. -->
 <script lang="ts">
+  import { homeFolder } from '$lib/state/home-folder.svelte';
   import { previewFacts, previewMeta, usePreviewPane } from '$lib/hooks/use-preview-pane.svelte';
   import EntryIcon from '$lib/components/ui/EntryIcon.svelte';
   import Glyph from '$lib/components/ui/Glyph.svelte';
@@ -105,9 +106,9 @@
         class="border-divider grid grid-cols-[auto_1fr] gap-x-4 gap-y-1.5 border-t pt-3 text-xs"
         data-mac="info-grid"
       >
-        {#each previewFacts(entry) as fact (fact.label)}
+        {#each previewFacts(entry, homeFolder.path) as fact (fact.label)}
           <dt class="text-text-secondary">{fact.label}</dt>
-          <dd class="min-w-0 break-words" title={fact.value}>{fact.value}</dd>
+          <dd class="min-w-0 break-words" title={fact.value}>{fact.shown ?? fact.value}</dd>
         {/each}
       </dl>
     </div>

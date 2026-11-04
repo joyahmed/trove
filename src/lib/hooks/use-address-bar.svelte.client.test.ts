@@ -1,7 +1,7 @@
 import { flushSync } from 'svelte';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { ADDRESS_HISTORY_EVENT, isHistoryKey, useAddressBar } from './use-address-bar.svelte';
-import { openPath, openUrl } from '$lib/api/fs';
+import { openPath, openUrl, readDir } from '$lib/api/fs';
 import { actions } from '$lib/state/actions.svelte';
 import { tabs } from '$lib/state/tabs.svelte';
 import { pathLocation } from '$lib/utils/location';
@@ -154,5 +154,64 @@ describe('the ▾ list: places this tab has been, newest first', () => {
     bar.dispatchEvent(new CustomEvent(ADDRESS_HISTORY_EVENT));
     expect(address.historyMenu.open).toBe(false);
     if (typeof detach === 'function') detach();
+  });
+});
+
+describe("the chevron after a crumb lists that folder's subfolders (plan 06 § 6.4)", () => {
+  const anchor = {
+    getBoundingClientRect: () => ({ left: 10, bottom: 40 }),
+    focus: () => undefined,
+  } as unknown as HTMLElement;
+  const dir = (name: string) => ({
+    name,
+    path: `C:\\Users\\alex\\${name}`,
+    isDir: true,
+    size: 0,
+    modifiedMs: null,
+    createdMs: null,
+    ext: null,
+    isHidden: false,
+    iconKey: 'folder',
+    typeName: 'File folder',
+  });
+
+  beforeEach(async () => {
+    await tabs.active.navigate(START, { replace: true });
+    flushSync();
+  });
+
+  const lastCrumb = (a: ReturnType<typeof useAddressBar>) => a.crumbs.length - 1;
+
+  it('opens with the folders, and picking one navigates there', async () => {
+    vi.mocked(readDir).mockResolvedValueOnce({ path: '', entries: [dir('b'), dir('a')] });
+    const address = useAddressBar();
+    await address.openCrumbMenu(lastCrumb(address), anchor);
+    expect(address.crumbMenu.open).toBe(true);
+    expect(address.crumbItems.map((r) => r.key)).toEqual([
+      'C:\\Users\\alex\\a',
+      'C:\\Users\\alex\\b',
+    ]);
+    const row = address.crumbItems[0];
+    if (row?.kind === 'item') await row.run();
+    flushSync();
+    expect(tabs.active.location).toEqual(pathLocation('C:\\Users\\alex\\a'));
+  });
+
+  it('a folder that cannot be read opens one quiet disabled row, and does not throw', async () => {
+    vi.mocked(readDir).mockRejectedValueOnce('denied');
+    const address = useAddressBar();
+    await address.openCrumbMenu(lastCrumb(address), anchor);
+    expect(address.crumbMenu.open).toBe(true);
+    expect(address.crumbItems.map((r) => r.key)).toEqual(['none']);
+  });
+
+  it('a second press on the same chevron closes it; Escape-style close() too', async () => {
+    const address = useAddressBar();
+    const i = lastCrumb(address);
+    await address.openCrumbMenu(i, anchor);
+    expect(address.crumbMenuOf).toBe(i);
+    await address.openCrumbMenu(i, anchor);
+    expect(address.crumbMenu.open).toBe(false);
+    expect(address.crumbMenuOf).toBeNull();
   });
 });

@@ -2,10 +2,19 @@
 // shell and the terminal component. The component mounts lazily, so output that arrives before
 // it is ready is buffered and flushed when the sink is set. Height and "follow the folder" are
 // settings; the session is per window and survives switching tabs — closing the pane kills it.
-import { onPtyExit, ptyFollow, ptyKill, ptyResize, ptySpawn, ptyWrite } from '$lib/api/pty';
+import {
+  onPtyCwd,
+  onPtyExit,
+  ptyFollow,
+  ptyKill,
+  ptyResize,
+  ptySpawn,
+  ptyWrite,
+} from '$lib/api/pty';
 import { settings } from '$lib/state/settings.svelte';
 import { tabs } from '$lib/state/tabs.svelte';
-import type { PtyExit } from '$lib/types/pty';
+import type { PtyCwd, PtyExit } from '$lib/types/pty';
+import { samePath } from '$lib/utils/path';
 import { logError } from '$lib/api/log';
 
 type Sink = (chunk: string) => void;
@@ -15,6 +24,10 @@ type Sink = (chunk: string) => void;
  * program ending prints (at least the prompt), so quiet output after output is the cue.
  */
 export const FOLLOW_QUIET_MS = 400;
+
+/** How long a fresh shell's output must stay quiet before pasted paths are typed, and the cap. */
+export const PROMPT_QUIET_MS = 350;
+const PROMPT_WAIT_MS = 4000;
 
 class TerminalState {
   open = $state(false);
@@ -30,6 +43,12 @@ class TerminalState {
    * its id is assigned, cleared by any other spawn and by kill. It never follows navigation.
    */
   plain = $state(false);
+  /**
+   * The folder the shell itself last reported (OSC 7 / OSC 9;9, plan 08 E1); null until it
+   * reports one — many shells never do. A navigation to it is the shell's own `cd` coming back
+   * through the listing, so nothing is typed for it.
+   */
+  cwd = $state<string | null>(null);
 
   #sink: Sink | null = null;
   #cols = 80;
@@ -82,7 +101,24 @@ class TerminalState {
     }
   }
 
+  #lastOutputAt = 0;
+
+  /** Resolves once the shell printed something and then stayed quiet for `quietMs`, or after `maxMs`. */
+  #untilQuiet(quietMs: number, maxMs: number): Promise<void> {
+    const start = Date.now();
+    return new Promise((resolve) => {
+      const tick = () => {
+        const now = Date.now();
+        const quiet = this.#lastOutputAt >= start && now - this.#lastOutputAt >= quietMs;
+        if (quiet || now - start >= maxMs) resolve();
+        else setTimeout(tick, 50);
+      };
+      tick();
+    });
+  }
+
   #output = (chunk: string) => {
+    this.#lastOutputAt = Date.now();
     for (const l of [...this.#listeners]) l(chunk);
     if (this.#queuedFollow !== null) this.#retryFollowWhenQuiet();
     if (this.#sink) this.#sink(chunk);
@@ -125,6 +161,7 @@ class TerminalState {
     this.plain = false;
     const previous = this.sessionId;
     this.sessionId = null;
+    this.cwd = null;
     this.#dropQueuedFollow();
     this.#cols = cols;
     this.#rows = rows;
@@ -158,6 +195,27 @@ class TerminalState {
     if (this.sessionId !== null && !this.exited) void ptyWrite(this.sessionId, data);
   }
 
+  /**
+   * Type `text` at the shell's prompt WITHOUT Enter (plan 08 E3: selected paths, quoted). Opens
+   * the pane first when it is closed and waits for its shell to come up. A `plain` shell is
+   * Trove's own, holding a typed uninstall line, so it gets nothing. `false` = nothing written.
+   */
+  async typeIntoPrompt(text: string): Promise<boolean> {
+    if (!text) return false;
+    const fresh = !this.open;
+    if (fresh) this.open = true;
+    // the pane mounts lazily and spawns on mount: the id arrives a moment later
+    for (let i = 0; i < 100 && this.sessionId === null && !this.error; i++)
+      await new Promise((r) => setTimeout(r, 50));
+    if (this.sessionId === null || this.exited || this.plain) return false;
+    // a shell just started is still printing its banner and prompt, and a line typed into that
+    // is redrawn over: let its output go quiet first (capped, a silent shell is not waited on)
+    if (fresh) await this.#untilQuiet(PROMPT_QUIET_MS, PROMPT_WAIT_MS);
+    if (this.sessionId === null || this.exited || this.plain) return false;
+    this.write(text);
+    return true;
+  }
+
   resize(cols: number, rows: number) {
     this.#cols = cols;
     this.#rows = rows;
@@ -171,6 +229,7 @@ class TerminalState {
     const id = this.sessionId;
     this.sessionId = null;
     this.plain = false;
+    this.cwd = null;
     await this.#kill(id);
   }
 
@@ -194,6 +253,8 @@ class TerminalState {
     // a plain shell holds a typed uninstall line: a `cd` after it would run with it on Enter
     if (this.plain) return;
     if (!this.open || !this.follow || this.sessionId === null || this.exited || !path) return;
+    // the shell is already there: this navigation is its own `cd` (`applyCwd`) coming back
+    if (this.cwd !== null && samePath(path, this.cwd)) return;
     const id = this.sessionId;
     const seq = ++this.#followSeq;
     void ptyFollow(id, path).then(
@@ -227,10 +288,27 @@ class TerminalState {
     this.exitCode = e.code;
   }
 
-  /** Subscribe to the shell's exit; returns the detach fn. */
+  /**
+   * The shell reported a new folder (a `cd` typed in the pane): move the active tab there when
+   * the pane follows the folder. The backend sends only folders that exist and only on a
+   * change, so a prompt redrawn in place never pulls the listing back from where the user went.
+   * A plain shell is Trove's own and never moves the listing.
+   */
+  applyCwd(e: PtyCwd) {
+    if (e.sessionId !== this.sessionId || this.plain) return;
+    this.cwd = e.path;
+    this.path = e.path;
+    if (!this.follow || !this.open) return;
+    if (samePath(tabs.active.path, e.path)) return;
+    void tabs.active.navigate(e.path);
+  }
+
+  /** Subscribe to the shell's exit and folder reports; returns the detach fn. */
   attach() {
-    const unlisten = onPtyExit((e) => this.applyExit(e));
-    return () => void unlisten.then((f) => f());
+    const unlisten = [onPtyExit((e) => this.applyExit(e)), onPtyCwd((e) => this.applyCwd(e))];
+    return () => {
+      for (const u of unlisten) void u.then((f) => f());
+    };
   }
 
   /** Closing the pane ends the shell (the plancheck's rule); reopening spawns a fresh one. */

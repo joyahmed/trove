@@ -1,0 +1,44 @@
+[
+  {
+    "items": [
+      {
+        "children": [],
+        "enabled": true,
+        "iconKey": "menu/00000000000000ab",
+        "id": 3,
+        "label": "Open with Code",
+        "separator": false,
+        "verb": "vscode"
+      },
+      {
+        "children": [],
+        "enabled": false,
+        "iconKey": null,
+        "id": 0,
+        "label": "",
+        "separator": true,
+        "verb": null
+      },
+      {
+        "children": [
+          {
+            "children": [],
+            "enabled": true,
+            "iconKey": null,
+            "id": 9,
+            "label": "Desktop (create shortcut)",
+            "separator": false,
+            "verb": null
+          }
+        ],
+        "enabled": true,
+        "iconKey": null,
+        "id": 0,
+        "label": "Send to",
+        "separator": false,
+        "verb": null
+      }
+    ],
+    "token": 1
+  }
+]

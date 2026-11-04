@@ -14,7 +14,18 @@ import { openWindow, snapWindow } from '$lib/api/window';
 import { settingsDialog } from '$lib/state/settings-dialog.svelte';
 import { findAnything } from '$lib/hooks/use-palette.svelte';
 import { onMac } from '$lib/utils/platform';
-import { isAltGraph, SNAP_CHORDS, snapKeysOn, type SnapKey } from '$lib/utils/key-label';
+import {
+  isAltGraph,
+  SNAP_CHORDS,
+  snapKeysOn,
+  STYLE_CHORDS,
+  styleChord,
+  type SnapKey,
+  type StyleCommand,
+} from '$lib/utils/key-label';
+import { paletteActionRunners } from '$lib/data/palette-action-runners';
+import { VIEW_STEP_ACTIONS } from '$lib/data/action-chords';
+import { keyCode } from '$lib/utils/chord-overrides';
 import { comingFrom, hostStyle, type OsStyle } from '$lib/state/coming-from.svelte';
 import { explorerViewOrder, stepIconSize, type ViewStep } from '$lib/utils/view-steps';
 
@@ -39,6 +50,12 @@ export interface Shortcut {
   /** …but not from the terminal pane, whose shell has its own meaning for it (^L clear,
    * ^K kill line, ^E end of line, ^F forward, Alt+D delete word) */
   shellOwns?: boolean;
+  /** the palette action (`data/palette-actions`) this chord runs, where it runs one — how
+   * `action-chords.test.ts` proves every action's hint names a key that reaches it */
+  id?: string;
+  /** a command of its own that only shares `id`'s chord (Alt+Enter Properties off a Mac): a
+   * rebind of that action leaves this row where it is */
+  rebindKeeps?: boolean;
   run: () => unknown;
 }
 
@@ -131,6 +148,9 @@ export const addressHistoryShortcut: Shortcut = { key: 'F4', run: () => openAddr
 export const propertiesShortcut: Shortcut = {
   key: 'Enter',
   alt: true,
+  // off a Mac this IS the Details pane's chord (key-label `PLATFORM_CHORDS.detailsPane`)
+  id: 'toggle-details',
+  rebindKeeps: true,
   run: () => (selection.count > 0 || panes.isOpen('details')) && panes.toggle('details'),
 };
 
@@ -143,9 +163,9 @@ export const propertiesShortcut: Shortcut = {
  * entry: Ctrl+R (⌘R) is bound on every platform, and F5 is the list's own key.
  */
 export const finderShortcuts = (): Shortcut[] => [
-  { key: 'z', ctrl: true, shift: true, run: () => actions.redo() },
+  { key: 'z', ctrl: true, shift: true, id: 'redo', run: () => actions.redo() },
   { key: 'i', ctrl: true, run: propertiesShortcut.run },
-  { key: 'i', ctrl: true, alt: true, run: () => panes.toggle('details') },
+  { key: 'i', ctrl: true, alt: true, id: 'toggle-details', run: () => panes.toggle('details') },
   { key: '[', ctrl: true, run: () => tabs.active.back() },
   { key: ']', ctrl: true, run: () => tabs.active.forward() },
   { key: 'ArrowUp', ctrl: true, run: () => tabs.active.up() },
@@ -154,7 +174,7 @@ export const finderShortcuts = (): Shortcut[] => [
 /** Explorer's chord that differs from Finder's: Redo is Ctrl+Y (⌘Y on a Mac coming from Windows).
  * Explorer's Alt+←/→/↑ stay in the main table on every platform. */
 export const explorerShortcuts = (): Shortcut[] => [
-  { key: 'y', ctrl: true, run: () => actions.redo() },
+  { key: 'y', ctrl: true, id: 'redo', run: () => actions.redo() },
 ];
 
 const jump = (n: number): Shortcut => ({
@@ -176,7 +196,12 @@ const setView = (view: ViewStep) => () => {
 export const viewShortcuts = (mac: boolean): Shortcut[] =>
   explorerViewOrder.map((view, i) => {
     const n = i + 1;
-    const base = { key: String(n), code: `Digit${n}`, run: setView(view) };
+    const base = {
+      key: String(n),
+      code: `Digit${n}`,
+      id: VIEW_STEP_ACTIONS[i],
+      run: setView(view),
+    };
     return mac
       ? { ...base, ctrl: true, meta: true, keepCtrl: true }
       : { ...base, ctrl: true, shift: true };
@@ -210,20 +235,29 @@ const toggleHidden = () => (settings.showHidden = !settings.showHidden);
 /**
  * Show / hide hidden items (G.59), the key each system's file manager uses: Finder's ⇧⌘. (by key
  * position, `Period` — Shift types ">"), Nautilus' Ctrl+H. Explorer has none, so Windows style on
- * a Windows host binds nothing. Finder's chord is the host's own on a Mac and comes with Mac
- * style anywhere; Ctrl+H is a Linux host's own and comes with Linux style on a PC — never on a
- * Mac, where ⌘H is the system's Hide. `utils/key-label` `hiddenItemsChord` names the same keys.
+ * a Windows host takes Finder's (plan 08 A1). Finder's chord is the host's own on a Mac and comes
+ * with Mac style anywhere; Ctrl+H is a Linux host's own and comes with Linux style on a PC — never
+ * on a Mac, where ⌘H is the system's Hide. `utils/key-label` `hiddenItemsChord` names the same keys.
  */
 export const hiddenItemsShortcuts = (
   mac: boolean,
   style: OsStyle,
   linuxHost = false,
 ): Shortcut[] => [
-  ...(mac || style === 'mac'
-    ? [{ key: '.', code: 'Period', ctrl: true, shift: true, run: toggleHidden }]
+  ...(mac || style === 'mac' || (style === 'windows' && !linuxHost)
+    ? [
+        {
+          key: '.',
+          code: 'Period',
+          ctrl: true,
+          shift: true,
+          id: 'toggle-hidden',
+          run: toggleHidden,
+        },
+      ]
     : []),
   ...(!mac && (linuxHost || style === 'linux')
-    ? [{ key: 'h', ctrl: true, run: toggleHidden }]
+    ? [{ key: 'h', ctrl: true, id: 'toggle-hidden', run: toggleHidden }]
     : []),
 ];
 
@@ -250,7 +284,65 @@ export const newFolderShortcut: Shortcut = {
   key: 'n',
   ctrl: true,
   shift: true,
+  id: 'new-folder',
   run: () => actions.newFolder(),
+};
+
+/** `STYLE_CHORDS`' commands → the palette action each runs (`data/palette-action-runners`). */
+export const STYLE_ACTION_IDS: Record<StyleCommand, string> = {
+  openHome: 'open-home',
+  openThisPc: 'open-this-pc',
+  openRecycleBin: 'open-recycle-bin',
+  newTextFile: 'new-text-file',
+  invertSelection: 'invert-selection',
+  openTerminal: 'open-terminal',
+  sortName: 'sort-name',
+  sortType: 'sort-type',
+  sortModified: 'sort-modified',
+  sortSize: 'sort-size',
+  viewGallery: 'view-gallery',
+};
+
+/** Keys a chord names by position, because Shift (or Option) changes the character they type. */
+const CODE_OF: Record<string, string> = { '`': 'Backquote', '.': 'Period' };
+
+/**
+ * One `key-label` chord string as a table row: `Ctrl` is the table's Ctrl (⌘ on a Mac),
+ * `Control` the real Control key (`keepCtrl`, with ⌘ held only when `Ctrl` is named too).
+ * Digits and punctuation match by `code`: Shift+1 types "!", Shift+` types "~".
+ */
+export const chordShortcut = (chord: string, id: string, run: () => unknown): Shortcut => {
+  const parts = chord.split('+');
+  const key = parts.pop() ?? '';
+  const code = /^\d$/.test(key) ? `Digit${key}` : CODE_OF[key];
+  const row: Shortcut = { key, id, run };
+  if (code !== undefined) row.code = code;
+  if (parts.includes('Alt')) row.alt = true;
+  if (parts.includes('Shift')) row.shift = true;
+  if (parts.includes('Control')) {
+    row.ctrl = true;
+    row.keepCtrl = true;
+    row.meta = parts.includes('Ctrl');
+  } else if (parts.includes('Ctrl')) row.ctrl = true;
+  return row;
+};
+
+/**
+ * Plan 08 A1: the palette actions that had no key, from `STYLE_CHORDS` — the host's own column
+ * always, and the chosen style's added (a style never takes a key away). Not while typing: a
+ * text field keeps Ctrl+Shift+H, Alt+Home and the rest.
+ */
+export const styleChordShortcuts = (
+  mac: boolean,
+  style: OsStyle,
+  linuxHost: boolean,
+): Shortcut[] => {
+  const host: OsStyle = mac ? 'mac' : linuxHost ? 'linux' : 'windows';
+  return (Object.keys(STYLE_CHORDS) as StyleCommand[]).flatMap((cmd) => {
+    const id = STYLE_ACTION_IDS[cmd];
+    const chords = new Set([styleChord(cmd, host, host), styleChord(cmd, style, host)]);
+    return [...chords].map((c) => chordShortcut(c, id, () => paletteActionRunners[id]?.()));
+  });
 };
 
 /** The chords a Mac's File menu also offers (`commands/app_menu.rs`), by its command name. */
@@ -285,10 +377,20 @@ export const shortcutTable = (
   mac: boolean,
   style: OsStyle = mac ? 'mac' : 'windows',
   linuxHost = false,
-): Shortcut[] => [
-  { key: 't', ctrl: true, whileTyping: true, run: menuCommands['new-tab'] },
+  overrides: Readonly<Record<string, string>> = {},
+): Shortcut[] => applyOverrides(baseTable(mac, style, linuxHost), overrides);
+
+/** The table before the person's overrides: the host's set plus the style's. */
+const baseTable = (mac: boolean, style: OsStyle, linuxHost: boolean): Shortcut[] => [
+  { key: 't', ctrl: true, whileTyping: true, id: 'new-tab', run: menuCommands['new-tab'] },
   { key: 'n', ctrl: true, whileTyping: true, run: menuCommands['new-window'] },
-  { key: ',', ctrl: true, whileTyping: true, run: () => settingsDialog.show() },
+  {
+    key: ',',
+    ctrl: true,
+    whileTyping: true,
+    id: 'open-settings',
+    run: () => settingsDialog.show(),
+  },
   { key: 't', ctrl: true, shift: true, whileTyping: true, run: () => tabs.reopen() },
   { key: 'w', ctrl: true, whileTyping: true, run: menuCommands['close-tab'] },
   ...tabCycleShortcuts(mac),
@@ -297,11 +399,12 @@ export const shortcutTable = (
   newFolderShortcut,
   // Explorer's Ctrl+R, Finder-style ⌘R: re-read the folder from anywhere, not only the list
   { key: 'r', ctrl: true, run: () => tabs.active.refresh() },
-  { key: 'z', ctrl: true, run: () => actions.undo() },
+  { key: 'z', ctrl: true, id: 'undo', run: () => actions.undo() },
   ...(mac || style === 'mac' ? finderShortcuts() : []),
   ...(!mac || style !== 'mac' ? explorerShortcuts() : []),
   ...hiddenItemsShortcuts(mac, style, linuxHost),
   ...snapShortcuts(style, mac ? 'mac' : linuxHost ? 'linux' : 'windows'),
+  ...styleChordShortcuts(mac, style, linuxHost),
   { key: 'f', ctrl: true, whileTyping: true, shellOwns: true, run: focusSearch },
   { key: 'e', ctrl: true, whileTyping: true, shellOwns: true, run: focusSearch },
   ...addressBarShortcuts(mac),
@@ -322,18 +425,61 @@ export const shortcutTable = (
   { key: 'Backspace', run: () => actions.renaming === null && tabs.active.back() },
 ];
 
+/**
+ * Plan 08 A3: a person's chord as a table row. Matched by the physical key (`code`) it was
+ * recorded on, as the recorder reads `e.code`: a chord set on a Bengali or Dvorak layout fires
+ * from the same key it was pressed on.
+ */
+export const overrideShortcut = (
+  chord: string,
+  id: string,
+  run: () => unknown,
+  whileTyping = false,
+): Shortcut => {
+  const row = chordShortcut(chord, id, run);
+  const code = keyCode(row.key);
+  if (code !== null) row.code = code;
+  if (whileTyping) row.whileTyping = true;
+  return row;
+};
+
+/**
+ * The table with the person's overrides (Settings ▸ Keyboard): each overridden action's own
+ * rows leave (but `rebindKeeps` rows, a different command on the old key) and its new chord
+ * goes FIRST, keeping the action's run and its while-typing rule. First, so it wins over any
+ * other row with the same keys after a style switch.
+ */
+export const applyOverrides = (
+  table: Shortcut[],
+  overrides: Readonly<Record<string, string>>,
+): Shortcut[] => {
+  const ids = Object.keys(overrides);
+  if (ids.length === 0) return table;
+  const added = ids.map((id) => {
+    const own = table.find((s) => s.id === id && s.rebindKeeps !== true);
+    const run = own?.run ?? (() => paletteActionRunners[id]?.());
+    return overrideShortcut(overrides[id] as string, id, run, own?.whileTyping === true);
+  });
+  return [
+    ...added,
+    ...table.filter((s) => s.id === undefined || s.rebindKeeps === true || !ids.includes(s.id)),
+  ];
+};
+
 let memo: { key: string; table: Shortcut[] } | null = null;
 
 /**
- * The table in force: the host's, plus the chosen style's set. Rebuilt only when the style (or,
- * in tests, the host) changes, so a Settings flip takes effect on the next key with no restart.
+ * The table in force: the host's, plus the chosen style's set, plus the person's overrides.
+ * Rebuilt only when one of those (or, in tests, the host) changes, so a Settings flip or a
+ * rebind takes effect on the next key with no restart.
  */
 export const currentShortcuts = (): Shortcut[] => {
   const mac = onMac();
   const style = comingFrom.style;
   const linuxHost = hostStyle() === 'linux';
-  const key = `${mac}|${style}|${linuxHost}`;
-  if (memo?.key !== key) memo = { key, table: shortcutTable(mac, style, linuxHost) };
+  const overrides = settings.shortcutOverrides;
+  const key = `${mac}|${style}|${linuxHost}|${JSON.stringify(overrides)}`;
+  if (memo?.key !== key) memo = { key, table: shortcutTable(mac, style, linuxHost, overrides) };
   return memo.table;
 };
 

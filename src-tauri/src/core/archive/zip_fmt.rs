@@ -270,8 +270,9 @@ pub(crate) fn compress(paths: &[PathBuf], progress: &mut ArchiveProgress) -> Res
 }
 
 /// Zip times are the clock on the wall where the zip was made (no time zone), like Explorer
-/// and 7-Zip read and write them: local time here.
-mod time {
+/// and 7-Zip read and write them: local time here. RAR header times are the same MS-DOS
+/// wall-clock format (`rar_fmt.rs`).
+pub(crate) mod time {
     use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use zip::DateTime;
 

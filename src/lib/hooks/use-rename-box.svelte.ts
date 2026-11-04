@@ -1,5 +1,7 @@
 // The inline rename field: Enter commits, Escape cancels, blur commits (Explorer's behaviour),
-// and the name is pre-selected without its extension so typing replaces the stem. A box that
+// and the name is pre-selected without its extension so typing replaces the stem. With
+// "File name extensions" off the box holds the base name only and the extension is kept
+// (`actions.startRename`), as Explorer does. A box that
 // unmounts while still open (its row scrolled out of the virtual window) commits a changed
 // draft rather than losing it.
 import { tick } from 'svelte';
@@ -49,7 +51,8 @@ export const useRenameBox = () => {
   /** `use:` action: focus, select the stem (before the last dot), and scroll into view. */
   const focus = (el: HTMLInputElement) => {
     el.focus();
-    const dot = el.value.lastIndexOf('.');
+    // extensions hidden: the box already holds only the base name, so all of it is the stem
+    const dot = actions.renameHidesExtension ? -1 : el.value.lastIndexOf('.');
     el.setSelectionRange(0, dot > 0 ? dot : el.value.length);
     el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
   };

@@ -12,6 +12,7 @@ vi.mock('$lib/api/shell-verbs', () => ({
   runCustomCommand: vi.fn(async () => {}),
 }));
 vi.mock('$lib/api/palette', () => ({
+  hidePalette: vi.fn(async () => {}),
   registerHotkey: vi.fn(async () => {}),
   onHotkeyFailed: vi.fn(),
   onSpotlightAction: vi.fn(),
@@ -23,12 +24,14 @@ vi.mock('$lib/api/palette', () => ({
 
 import { registerHotkey } from '$lib/api/palette';
 import {
+  archivesInsideWords,
   resetToDefaults,
   SEARCH_ENGINES,
   settingsSections,
   STORE_DEFAULT_HANDLER_NOTE,
   type SettingRow,
 } from './settings-sections';
+import { rememberFolderView } from '$lib/utils/folder-views';
 import { confirm } from '$lib/state/confirm.svelte';
 import { defaultHandler } from '$lib/state/default-handler.svelte';
 import { sanitize, settings } from '$lib/state/settings.svelte';
@@ -111,6 +114,26 @@ describe('settings sections', () => {
     expect(settings.accentSource).toBe('system');
     r.set('nonsense');
     expect(settings.accentSource).toBe('sapphire');
+  });
+
+  // Observed 2026-11-04: the row showed Large icons while the open folder was in Details. Not a
+  // bug - the row is the global default, which only a folder with nothing remembered uses.
+  it('the View row is the default for new folders and ignores a folder with its own view', () => {
+    const r = row('appearance', 'default-view');
+    expect(r.label).toBe('Default view for new folders');
+    expect(r.description).toContain('keeps its own view');
+    if (r.kind !== 'radio') throw new Error('radio expected');
+    settings.view = 'grid';
+    settings.iconSize = 96;
+    const large = r.get();
+    settings.folderViews = rememberFolderView(settings.folderViews, '/home/alex/docs', {
+      groupKey: null,
+      sortKey: 'name',
+      sortDir: 'asc',
+      view: 'details',
+    });
+    expect(r.get()).toBe(large);
+    expect(r.options.find((o) => o.key === large)?.label).toBe('Large icons');
   });
 
   // Off Windows the row is hidden rather than greyed: RadioRow cannot disable one option.
@@ -422,5 +445,16 @@ describe('Spotlight web search engine row', () => {
       expect(spotlight.hotkeyError).toBeNull();
       expect(hotkey().note?.()).toBe(note);
     });
+  });
+});
+
+describe('Open archives inside Trove lists the kinds this build opens', () => {
+  it('names .rar only when the build reads RAR', () => {
+    expect(archivesInsideWords(true)).toBe(
+      'Double-click a .zip, .7z, .tar or .rar to browse it like a folder',
+    );
+    expect(archivesInsideWords(false)).toBe(
+      'Double-click a .zip, .7z or .tar to browse it like a folder',
+    );
   });
 });

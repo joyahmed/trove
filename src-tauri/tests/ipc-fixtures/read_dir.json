@@ -1,0 +1,45 @@
+[
+  {
+    "entries": [
+      {
+        "createdMs": 1690000000000,
+        "ext": "txt",
+        "iconKey": "ext/txt",
+        "isDir": false,
+        "isHidden": false,
+        "modifiedMs": 1700000000000,
+        "name": "notes.txt",
+        "path": "/home/alex/notes.txt",
+        "size": 2048,
+        "typeName": "Text Document"
+      },
+      {
+        "createdMs": null,
+        "ext": null,
+        "iconKey": "folder",
+        "isDir": true,
+        "isHidden": false,
+        "isLink": true,
+        "modifiedMs": 1700000000000,
+        "name": "src",
+        "path": "/home/alex/src",
+        "size": 0,
+        "typeName": "Folder"
+      },
+      {
+        "cloudState": "online",
+        "createdMs": 1690000000000,
+        "ext": "txt",
+        "iconKey": "ext/txt",
+        "isDir": false,
+        "isHidden": false,
+        "modifiedMs": 1700000000000,
+        "name": "report.docx",
+        "path": "/home/alex/report.docx",
+        "size": 2048,
+        "typeName": "Text Document"
+      }
+    ],
+    "path": "/home/alex"
+  }
+]

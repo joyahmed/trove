@@ -8,9 +8,13 @@
   interface Props {
     value: string;
     label: string;
+    /** returns a reason to refuse the chord (shown; the recorder keeps listening) */
     onchange: (chord: string) => unknown;
+    /** shown instead of `value` spelled out: Settings ▸ Keyboard passes the menus' own hint */
+    display?: string;
   }
-  let { value, label, onchange }: Props = $props();
+  let { value, label, onchange, display }: Props = $props();
+  const shown = $derived(display ?? prettyChord(value));
 
   const rec = useHotkeyRecorder((chord) => onchange(chord));
 </script>
@@ -23,11 +27,11 @@
     class="rounded-control border-divider hover:bg-subtle-hover h-8 min-w-[9rem] border px-3 {rec.recording
       ? 'border-accent'
       : ''}"
-    aria-label={rec.recording ? 'Press the shortcut you want' : `${label}: ${prettyChord(value)}`}
+    aria-label={rec.recording ? 'Press the shortcut you want' : `${label}: ${shown}`}
     data-hotkey-recording={rec.recording ? '' : undefined}
     onclick={rec.toggle}
   >
-    {rec.recording ? 'Press keys…' : prettyChord(value)}
+    {rec.recording ? 'Press keys…' : shown}
   </button>
   {#if rec.refused}
     <div class="hotkey-refused text-text-secondary max-w-[16rem] text-right text-xs" role="status">

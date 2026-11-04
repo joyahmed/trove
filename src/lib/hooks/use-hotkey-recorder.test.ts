@@ -122,3 +122,29 @@ describe('a chord the page never sees (Windows Alt+Space, A.8.9)', () => {
     expect(native.flags).toEqual([true, false]);
   });
 });
+
+// Plan 08 A4: Settings ▸ Keyboard refuses a taken key in words and keeps listening.
+describe('hotkey recorder refusal from onchange', () => {
+  const press = (code: string, key: string) =>
+    Object.assign(new Event('keydown', { cancelable: true }), {
+      code,
+      key,
+      altKey: true,
+      ctrlKey: true,
+      shiftKey: false,
+      metaKey: false,
+    });
+
+  it('shows the reason and keeps recording; the next free key is kept', () => {
+    const onchange = vi.fn((chord: string) => (chord === 'ctrl+alt+n' ? 'Taken' : null));
+    const rec = useHotkeyRecorder(onchange);
+    rec.toggle();
+    rec.onkeydown(press('KeyN', 'n') as never);
+    expect(rec.recording).toBe(true);
+    expect(rec.refused).toBe('Taken');
+    rec.onkeydown(press('KeyJ', 'j') as never);
+    expect(rec.recording).toBe(false);
+    expect(rec.refused).toBeNull();
+    expect(onchange.mock.calls.map((c) => c[0])).toEqual(['ctrl+alt+n', 'ctrl+alt+j']);
+  });
+});

@@ -18,13 +18,17 @@ const pty = vi.hoisted(() => ({
   ptyKill: vi.fn<(sessionId: number) => Promise<void>>(async () => {}),
   ptyFollow: vi.fn<(id: number, path: string) => Promise<Followed>>(async () => 'typed'),
   onPtyExit: vi.fn(async () => () => {}),
+  onPtyCwd: vi.fn(async () => () => {}),
 }));
 vi.mock('$lib/api/pty', () => pty);
 vi.mock('$lib/api/settings', () => ({
   readSettings: vi.fn(async () => null),
   writeSettings: vi.fn(async () => {}),
 }));
-vi.mock('$lib/api/fs', () => ({ readDir: vi.fn() }));
+const fs = vi.hoisted(() => ({
+  readDir: vi.fn(async (path: string) => ({ path, entries: [] })),
+}));
+vi.mock('$lib/api/fs', () => fs);
 vi.mock('$lib/api/shell', () => ({
   drives: vi.fn(async () => []),
   knownFolders: vi.fn(async () => []),
@@ -271,5 +275,71 @@ describe('terminal pane state', () => {
     const never = terminal.waitFor('trove-uninstall$ ', 20);
     output('hijacked> ');
     expect(await never).toBe(false);
+  });
+
+  describe('a cd in the shell moves the listing (plan 08 E1)', () => {
+    const open = async () => {
+      terminal.toggle();
+      await terminal.spawn();
+    };
+
+    it('the attached listener is the one that applies the report', async () => {
+      const detach = terminal.attach();
+      await open();
+      const listen = vi.mocked(pty.onPtyCwd).mock.calls[0] as unknown as [
+        (e: { sessionId: number; path: string }) => void,
+      ];
+      listen[0]({ sessionId: 7, path: 'C:\\via-event' });
+      await vi.waitFor(() => expect(tabs.active.path).toBe('C:\\via-event'));
+      detach();
+    });
+
+    it('navigates the active tab and types no cd back into the shell', async () => {
+      await open();
+      terminal.applyCwd({ sessionId: 7, path: 'C:\\proj' });
+      expect(terminal.cwd).toBe('C:\\proj');
+      expect(terminal.path).toBe('C:\\proj');
+      await vi.waitFor(() => expect(tabs.active.path).toBe('C:\\proj'));
+      expect(fs.readDir).toHaveBeenCalledWith('C:\\proj');
+      // the listing's effect then reports the navigation: the shell is already there
+      terminal.onNavigated('C:\\proj');
+      expect(pty.ptyFollow).not.toHaveBeenCalled();
+      // a navigation somewhere else still follows as before
+      terminal.onNavigated('C:\\other');
+      expect(pty.ptyFollow).toHaveBeenCalledWith(7, 'C:\\other');
+    });
+
+    it('leaves the listing alone when Follow folder is off, but still knows the folder', async () => {
+      await open();
+      terminal.follow = false;
+      terminal.applyCwd({ sessionId: 7, path: 'C:\\proj' });
+      expect(terminal.cwd).toBe('C:\\proj');
+      expect(fs.readDir).not.toHaveBeenCalled();
+      expect(tabs.active.path).toBe('C:\\work');
+      terminal.follow = true;
+    });
+
+    it('ignores a report from another session, and one for where the tab already is', async () => {
+      await open();
+      terminal.applyCwd({ sessionId: 99, path: 'C:\\proj' });
+      expect(terminal.cwd).toBeNull();
+      terminal.applyCwd({ sessionId: 7, path: 'C:\\work' });
+      expect(fs.readDir).not.toHaveBeenCalled();
+    });
+
+    it('a plain shell never moves the listing', async () => {
+      terminal.requestPlain();
+      await open();
+      terminal.applyCwd({ sessionId: 7, path: '/tmp' });
+      expect(terminal.cwd).toBeNull();
+      expect(fs.readDir).not.toHaveBeenCalled();
+    });
+
+    it('a respawn forgets the old shell folder', async () => {
+      await open();
+      terminal.applyCwd({ sessionId: 7, path: 'C:\\proj' });
+      await terminal.spawn();
+      expect(terminal.cwd).toBeNull();
+    });
   });
 });

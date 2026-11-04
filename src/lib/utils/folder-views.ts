@@ -15,7 +15,10 @@
 // wiring is `state/tab.svelte.ts`.
 import { isGroupKey, isSortKey, type SortKey } from '$lib/data/file-columns';
 import type { IconSize, ViewMode } from '$lib/state/settings.svelte';
-import { folderKey } from '$lib/utils/path';
+import { folderKey, parentOf } from '$lib/utils/path';
+import type { onWindows } from '$lib/utils/platform';
+
+type Platform = Parameters<typeof onWindows>[0];
 
 // a copy of settings' VIEW_MODES plus `gallery`, a per-folder choice (plan 15 G.52) that is not valid
 // as the global default: settings imports this file, so a value import back would cycle
@@ -85,14 +88,51 @@ export const isDownloadsFolder = (path: string, downloads: string | null): boole
 };
 
 /** The folder's own remembered view, or null when it has never been looked at differently. */
-export const findFolderView = (views: FolderView[], path: string): FolderView | null => {
-  const key = folderKey(path);
+export const findFolderView = (
+  views: FolderView[],
+  path: string,
+  platform?: Platform,
+): FolderView | null => {
+  const key = folderKey(path, platform);
   if (key === '') return null;
   return views.find((v) => v.path === key) ?? null;
 };
 
 /**
- * What this folder is shown with: its own remembered view, else the Downloads seed, else the
+ * The view a folder follows: its own entry, else the entry of its NEAREST ancestor that has one
+ * (plan 08 F4 - the inheritable default). `parentOf` walks the normalised key, so a drive letter,
+ * backslashes and case (Windows folds it, POSIX keeps it) are handled the way every other path
+ * in the app is. A folder with its own entry never looks further up: its view wins whole.
+ */
+export const nearestFolderView = (
+  views: FolderView[],
+  path: string,
+  platform?: Platform,
+): FolderView | null => {
+  let key: string | null = folderKey(path, platform);
+  while (key !== null && key !== '') {
+    const hit = views.find((v) => v.path === key);
+    if (hit) return hit;
+    key = parentOf(key, platform);
+  }
+  return null;
+};
+
+/** Whether `path` lies strictly below `ancestor` (both `folderKey`-normalised on the way in). */
+export const isBelow = (path: string, ancestor: string, platform?: Platform): boolean => {
+  const top = folderKey(ancestor, platform);
+  if (top === '') return false;
+  let key = parentOf(folderKey(path, platform), platform);
+  while (key !== null) {
+    if (folderKey(key, platform) === top) return true;
+    key = parentOf(key, platform);
+  }
+  return false;
+};
+
+/**
+ * What this folder is shown with: its own remembered view, else the nearest ancestor's, else the
+ * Downloads seed, else the
  * global defaults exactly as before this existed.
  */
 export const effectiveFolderView = (
@@ -101,7 +141,7 @@ export const effectiveFolderView = (
   downloads: string | null,
   defaults: FolderViewState & FolderLayout,
 ): FolderViewState & FolderLayout => {
-  const stored = findFolderView(views, path);
+  const stored = nearestFolderView(views, path);
   if (stored !== null) {
     return {
       groupKey: stored.groupKey,
@@ -145,6 +185,22 @@ export const rememberFolderView = (
     iconSize: view.iconSize ?? old?.iconSize ?? null,
   };
   return [entry, ...rest].slice(0, MAX_FOLDER_VIEWS);
+};
+
+/**
+ * "Apply to subfolders": file `view` under `path` AND forget every view remembered below it, so
+ * all of those folders go back to following this one (they inherit it, see `nearestFolderView`).
+ * Views of unrelated folders are untouched. A place (`''`) is returned unchanged.
+ */
+export const applyFolderViewToSubfolders = (
+  views: FolderView[],
+  path: string,
+  view: FolderViewState & Partial<FolderLayout>,
+  platform?: Platform,
+): FolderView[] => {
+  if (folderKey(path, platform) === '') return views;
+  const kept = views.filter((v) => !isBelow(v.path, path, platform));
+  return rememberFolderView(kept, path, view);
 };
 
 const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null;

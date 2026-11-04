@@ -151,6 +151,36 @@ describe('transfers', () => {
     }
   });
 
+  it('what a finished job saves for after a restart: move pairs, a copy, a Replace as other', async () => {
+    const land = async (mode: 'move' | 'copy', replaced?: 'binned') => {
+      const id = await transfers.start(['C:\\src\\a.txt'], 'D:\\dest', mode, 'skip');
+      await transfers.applyDone({
+        jobId: id,
+        outputs: [
+          { from: 'C:\\src\\a.txt', to: 'D:\\dest\\a.txt', ...(replaced ? { replaced } : {}) },
+        ],
+        error: null,
+        failed: [],
+        cancelled: false,
+      });
+      return undo.saved().at(-1)?.record;
+    };
+    expect(await land('move')).toEqual({
+      kind: 'move',
+      pairs: [{ from: 'C:\\src\\a.txt', to: 'D:\\dest\\a.txt' }],
+    });
+    expect(await land('copy')).toEqual({
+      kind: 'copy',
+      created: ['D:\\dest\\a.txt'],
+      sources: ['C:\\src\\a.txt'],
+      destination: 'D:\\dest',
+    });
+    expect(await land('copy', 'binned')).toEqual({
+      kind: 'other',
+      reason: 'it replaced older files',
+    });
+  });
+
   it('undoing a move moves the outputs back without recording again', async () => {
     const id = await transfers.start(['C:\\src\\a.txt'], 'D:\\dest', 'move', 'skip');
     await transfers.applyDone({

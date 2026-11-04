@@ -1,0 +1,20 @@
+[
+  [
+    {
+      "deletedMs": 1700000000000,
+      "id": "r1",
+      "isDir": false,
+      "name": "old.txt",
+      "originalParent": "/home/alex",
+      "size": 5
+    },
+    {
+      "deletedMs": 1700000000001,
+      "id": "r2",
+      "isDir": true,
+      "name": "dir",
+      "originalParent": null,
+      "size": null
+    }
+  ]
+]

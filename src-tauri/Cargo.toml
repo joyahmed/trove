@@ -1,6 +1,6 @@
 [package]
 name = "trove"
-version = "0.1.0"
+version = "0.1.1"
 description = "Trove — a fast file explorer for Windows, macOS and Linux, built with Tauri 2 + Svelte 5"
 authors = ["Joy Ahmed <joy@zettabyteincorp.com>"]
 homepage = "https://github.com/joyahmed/trove"
@@ -57,6 +57,15 @@ zstd = { version = "0.14", default-features = false }
 sevenz-rust2 = { version = "0.23", default-features = false, features = ["compress", "util", "bzip2", "ppmd", "deflate"] }
 tauri-plugin-log = "2.9.2"
 log = "0.4.34"
+# Self-update for the GitHub downloads (plan 22.5). Optional and OFF by default: only a build made
+# with `--features updater` (and `--config src-tauri/tauri.updater.conf.json`) carries it. A store
+# build never self-updates, so `core/channel.rs` refuses `msstore` + `updater` at compile time.
+tauri-plugin-updater = { version = "2", optional = true }
+# RAR list + extract (plan 16 phase 5), never create. Optional, ON by default through the `rar`
+# feature. ⚠️ Builds RARLAB's UnRAR C++ source with `cc` (MSVC, clang or g++ must be there), and
+# that source is under the UnRAR licence, not MIT (LICENSES/unrar.txt): a distro build that
+# wants OSI-only code builds with `--no-default-features` and gets no RAR.
+unrar = { version = "0.5", optional = true }
 
 [target.'cfg(unix)'.dependencies]
 # statvfs for a drive's size off Windows (std has no such call). Already in the tree through
@@ -121,6 +130,8 @@ windows = { version = "0.61", features = [
   "Win32_System_SystemServices",
   "Win32_UI_Shell",
   "Win32_UI_Shell_Common",
+  # HMENU + MENUITEMINFOW: walking IContextMenu's menu (core/shell_menu.rs, plan 05 5.1)
+  "Win32_UI_WindowsAndMessaging",
 ] }
 # the `implement` macro (drag_out.rs) resolves `windows_core` at the crate root
 windows-core = "0.61"
@@ -131,11 +142,16 @@ windows-sys = { version = "0.60", features = [
   "Win32_Graphics_Dwm",
   "Win32_Graphics_Gdi",
   "Win32_Storage_FileSystem",
+  # a cloud folder's sync state for the OneDrive sidebar row: CfGetSyncRootInfoByPath (core/sync_root.rs, plan 05 5.4)
+  "Win32_Storage_CloudFilters",
   "Win32_System_Com",
   "Win32_System_DataExchange",
   "Win32_System_Memory",
   "Win32_System_Ole",
   "Win32_Security",
+  # the share sign-in box: CredUIPromptForWindowsCredentialsW + WNetAddConnection2W (core/net.rs, plan 05 5.3d)
+  "Win32_Security_Credentials",
+  "Win32_NetworkManagement_WNet",
   "Win32_System_Registry",
   # who holds a file open, and whose session / parent it is (core/lockers.rs, plan 21B)
   "Win32_System_Diagnostics_ToolHelp",
@@ -190,6 +206,13 @@ lto = true
 opt-level = 3
 panic = "abort"
 strip = true
+
+[features]
+default = ["rar"]
+# plan 16 phase 5: RAR extract + browse through UnRAR (see the `unrar` dependency above)
+rar = ["dep:unrar"]
+# plan 22.5.2: `tauri build --features updater --config src-tauri/tauri.updater.conf.json`
+updater = ["dep:tauri-plugin-updater"]
 
 # Tauri's mock runtime, for tests that need an `AppHandle` (`window_layout::arrange`). Linux only:
 # on Windows it makes the lib test binary import comctl32 v6 entry points without the manifest

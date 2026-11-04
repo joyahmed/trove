@@ -24,4 +24,6 @@ export interface SearchBatch {
   error: string | null;
   /** entries visited so far, for the "Searching…" line */
   scanned: number;
+  /** Mac: the unopened guarded folders the search left out; filled on the `done` batch only */
+  skippedGuarded?: string[];
 }

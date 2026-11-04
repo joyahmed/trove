@@ -47,6 +47,16 @@ export const onWindows = (platform: TrovePlatform | undefined = injected()): boo
 export const storeBuild = (platform: TrovePlatform | undefined = injected()): boolean =>
   platform?.channel === 'msstore';
 
+/** A build that updates itself (plan 22.5): the cargo feature `updater` on a GitHub download.
+ * Off Tauri, in the Store build and in every build without the feature, false: no update line. */
+export const selfUpdates = (platform: TrovePlatform | undefined = injected()): boolean =>
+  platform?.updater === true;
+
+/** A build that reads RAR (plan 16 phase 5): the cargo feature `rar`, on by default. Off Tauri
+ * and in a build without it (a distro that ships only OSI code), false: no RAR row anywhere. */
+export const readsRar = (platform: TrovePlatform | undefined = injected()): boolean =>
+  platform?.rar === true;
+
 /** A Mac build. Off Tauri nothing is injected and Windows' chords apply, like every switch here. */
 export const onMac = (platform: TrovePlatform | undefined = injected()): boolean =>
   platform?.os === 'macos';

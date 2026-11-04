@@ -2387,3 +2387,103 @@ mod bin_word_tests {
         );
     }
 }
+
+/// The attribute bits `SetFileAttributesW` accepts back. A placeholder also carries the recall,
+/// reparse and directory bits, which the OS sets itself and refuses to have written.
+#[cfg_attr(not(windows), allow(dead_code))] // only Windows pins cloud files; tested everywhere
+const SETTABLE_ATTRS: u32 = 0x1 | 0x2 | 0x4 | 0x20 | 0x100 | 0x1000 | 0x2000;
+
+/// The word "Always keep on this device" (`keep`) or "Free up space" writes: keep sets PINNED and
+/// drops UNPINNED, free does the reverse, the rest of `current` stays. The cloud provider sees
+/// the bits and downloads or frees the bytes itself, as it does for `attrib +P` / `attrib +U`.
+#[cfg_attr(not(windows), allow(dead_code))] // only Windows pins cloud files; tested everywhere
+pub fn cloud_pin_attrs(current: u32, keep: bool) -> u32 {
+    use crate::core::fs::{FILE_ATTRIBUTE_PINNED as PINNED, FILE_ATTRIBUTE_UNPINNED as UNPINNED};
+    let base = current & SETTABLE_ATTRS;
+    if keep {
+        (base | PINNED) & !UNPINNED
+    } else {
+        (base | UNPINNED) & !PINNED
+    }
+}
+
+/// Pin or free one cloud file or folder (plan 05 5.4). Reads the attributes off the link itself,
+/// as the listing does, so asking never downloads the file.
+#[cfg(windows)]
+pub fn set_cloud_pin(path: &Path, keep: bool) -> Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::fs::MetadataExt;
+    use windows_sys::Win32::Storage::FileSystem::SetFileAttributesW;
+
+    let current = std::fs::symlink_metadata(path)?.file_attributes();
+    let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+    // SAFETY: `wide` is a NUL-terminated UTF-16 path that outlives the call; the word is plain
+    // attribute bits. The function reads the string and touches nothing else of ours.
+    let ok = unsafe { SetFileAttributesW(wide.as_ptr(), cloud_pin_attrs(current, keep)) };
+    if ok == 0 {
+        Err(Error::last_os_error())
+    } else {
+        Ok(())
+    }
+}
+
+/// Only Windows has the Cloud Files pin bits; the menu never offers this elsewhere.
+#[cfg(not(windows))]
+pub fn set_cloud_pin(_path: &Path, _keep: bool) -> Result<()> {
+    Err(Error::new(
+        ErrorKind::Unsupported,
+        "Keeping files on this device is a Windows feature",
+    ))
+}
+
+#[cfg(test)]
+mod cloud_pin_tests {
+    use super::*;
+    use crate::core::fs::{
+        cloud_state_of, CloudState, FILE_ATTRIBUTE_PINNED, FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS,
+        FILE_ATTRIBUTE_UNPINNED,
+    };
+
+    const ARCHIVE: u32 = 0x20;
+    const REPARSE: u32 = 0x400;
+    const DIRECTORY: u32 = 0x10;
+
+    #[test]
+    fn keep_pins_and_free_unpins() {
+        let online =
+            ARCHIVE | REPARSE | FILE_ATTRIBUTE_UNPINNED | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS;
+        let kept = cloud_pin_attrs(online, true);
+        assert_eq!(kept, ARCHIVE | FILE_ATTRIBUTE_PINNED);
+        assert_eq!(cloud_state_of(kept), Some(CloudState::Pinned));
+        let freed = cloud_pin_attrs(ARCHIVE | FILE_ATTRIBUTE_PINNED, false);
+        assert_eq!(freed, ARCHIVE | FILE_ATTRIBUTE_UNPINNED);
+    }
+
+    #[test]
+    fn the_os_owned_bits_are_never_written_back() {
+        let word = cloud_pin_attrs(
+            DIRECTORY | REPARSE | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS,
+            false,
+        );
+        assert_eq!(
+            word & (DIRECTORY | REPARSE | FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS),
+            0
+        );
+        assert_eq!(word, FILE_ATTRIBUTE_UNPINNED);
+    }
+
+    #[test]
+    fn hidden_and_read_only_survive_a_pin() {
+        assert_eq!(
+            cloud_pin_attrs(0x1 | 0x2, true),
+            0x1 | 0x2 | FILE_ATTRIBUTE_PINNED
+        );
+    }
+
+    #[cfg(not(windows))]
+    #[test]
+    fn off_windows_it_says_why() {
+        let e = set_cloud_pin(Path::new("/tmp/x"), true).unwrap_err();
+        assert_eq!(e.kind(), ErrorKind::Unsupported);
+    }
+}

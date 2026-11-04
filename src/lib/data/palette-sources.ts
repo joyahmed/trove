@@ -24,22 +24,27 @@ import { recentFiles } from '$lib/api/recent';
 import { userProfile } from '$lib/api/shell';
 import { wslHome, wslRunningDistros } from '$lib/api/wsl';
 import { paletteActions } from '$lib/data/palette-actions';
+import { actionHint } from '$lib/data/action-chords';
 import { indexProgress } from '$lib/state/index-progress.svelte';
 import { places } from '$lib/state/places.svelte';
 import { settings } from '$lib/state/settings.svelte';
 import { wsl } from '$lib/state/wsl.svelte';
+import { guardedFolders } from '$lib/state/guarded-folders.svelte';
 import type { FileEntry } from '$lib/types/fs';
 import type { DriveInfo } from '$lib/types/shell';
 import type { PaletteResult, PaletteSource } from '$lib/types/palette';
 import { fmtSpace } from '$lib/utils/format';
 import { locationLabel, pathLocation } from '$lib/utils/location';
+import { tabSetActionKey } from '$lib/utils/tab-sets';
 import { evaluateExpression, formatResult, looksLikeExpression } from '$lib/utils/palette-calc';
 import { matchScore } from '$lib/utils/palette-rank';
+import { extensionQuery } from '$lib/utils/palette-ext';
 import { pathCompletion } from '$lib/utils/palette-path';
 import { buildSearchUrl } from '$lib/utils/palette-search-url';
 import { onWindows } from '$lib/utils/platform';
 import { isAppBundle } from '$lib/utils/app-bundle';
 import { appIcon } from '$lib/utils/app-icon';
+import { notSearchedTitle } from '$lib/utils/guarded-folders';
 import { folderKey, isRootPath, parentOf, pathKey, toLinuxForm, wslRootFor } from '$lib/utils/path';
 import { logError } from '$lib/api/log';
 
@@ -69,6 +74,8 @@ export interface PaletteTarget {
   navigate: (path: string) => unknown;
   reveal: (path: string) => unknown;
   searchEverywhere: (text: string) => unknown;
+  /** Search the active tab's folder (not every drive) for `text`. */
+  searchHere: (text: string) => unknown;
   runAction: (key: string) => unknown;
 }
 
@@ -77,6 +84,7 @@ interface Hand {
   navigate: (path: string) => Promise<void>;
   reveal: (path: string) => Promise<void>;
   searchEverywhere: (text: string) => Promise<void>;
+  searchHere: (text: string) => Promise<void>;
   runAction: (key: string) => Promise<void>;
   done: () => Promise<void>;
 }
@@ -102,6 +110,11 @@ const toMain: Hand = {
     await emitSearch(text);
     await hidePalette();
   },
+  searchHere: async (text) => {
+    await showMain();
+    await emitSearch(text, true);
+    await hidePalette();
+  },
   runAction: async (key) => {
     await showMain();
     await emitAction(key);
@@ -115,6 +128,7 @@ const toTarget = (t: PaletteTarget): Hand => ({
   navigate: async (path) => void (await t.navigate(path)),
   reveal: async (path) => void (await t.reveal(path)),
   searchEverywhere: async (text) => void (await t.searchEverywhere(text)),
+  searchHere: async (text) => void (await t.searchHere(text)),
   runAction: async (key) => void (await t.runAction(key)),
   done: async () => {},
 });
@@ -145,6 +159,7 @@ const folderResult = (
   title: folderName(path),
   detail: toLinuxForm(path) ?? path,
   identity: path,
+  previewPath: path,
   iconKey: 'folder',
   run: () => to.navigate(path),
   reveal: () => to.reveal(path),
@@ -157,13 +172,15 @@ const fileResult = (
   category: PaletteResult['category'],
 ): PaletteResult =>
   e.isDir && !isAppBundle(e)
-    ? folderResult(to, key, e.path, category)
+    ? { ...folderResult(to, key, e.path, category), entry: e }
     : {
         key,
         category,
         title: e.name,
         detail: parentOf(e.path) ?? e.path,
         identity: e.path,
+        previewPath: e.path,
+        entry: e,
         iconKey: e.iconKey,
         run: () => open(to, e.path),
         reveal: () => to.reveal(e.path),
@@ -199,17 +216,65 @@ const calcSource = (to: Hand): PaletteSource => ({
   },
 });
 
+/**
+ * A typed extension (`*.pdf`, `.pdf`), answered inline: Enter starts the explorer's own search
+ * for it under the folder the active tab shows (every drive from a place), same as typing
+ * `*.pdf` in its search box. `matched: true` for the same reason as the calculator's row.
+ */
+const extensionSource = (to: Hand): PaletteSource => ({
+  key: 'ext',
+  query: async (text) => {
+    const ext = extensionQuery(text);
+    if (ext === null) return [];
+    return [
+      {
+        key: 'ext:search',
+        category: 'ext',
+        title: `Search for *.${ext}`,
+        detail: 'In the current folder, in the explorer',
+        glyph: 'search',
+        matched: true,
+        run: () => to.searchHere(`*.${ext}`),
+      },
+    ];
+  },
+});
+
+/** One row per saved tab set and verb (plan 08 F3); the run key carries the set's name. */
+const tabSetRows = (to: Hand) =>
+  settings.tabSets.flatMap((set) =>
+    (
+      [
+        ['open', `Open tab set: ${set.name}`, 'add', 'restore session workspace'],
+        ['rename', `Rename tab set: ${set.name}`, 'rename', 'name change'],
+        ['delete', `Delete tab set: ${set.name}`, 'delete', 'remove forget'],
+      ] as const
+    ).map(([verb, title, glyph, keywords]) => ({
+      key: `action:${tabSetActionKey(verb, set.name)}`,
+      category: 'actions' as const,
+      title,
+      detail: `${keywords} · ${set.tabs.length} ${set.tabs.length === 1 ? 'tab' : 'tabs'}`,
+      keywords,
+      glyph,
+      run: () => to.runAction(tabSetActionKey(verb, set.name)),
+    })),
+  );
+
 const actionsSource = (to: Hand): PaletteSource => ({
   key: 'actions',
-  query: async () =>
-    paletteActions.map((a) => ({
+  query: async () => [
+    ...paletteActions.map((a) => ({
       key: `action:${a.key}`,
-      category: 'actions',
+      category: 'actions' as const,
       title: a.label,
       detail: a.keywords,
+      keywords: a.keywords,
       glyph: a.glyph,
+      hint: actionHint(a.key),
       run: () => to.runAction(a.key),
     })),
+    ...tabSetRows(to),
+  ],
 });
 
 /** Typed `C:\…`, `\\…`, `~`, `Ubuntu:/…`: the parent's children whose names start with the rest. */
@@ -545,6 +610,8 @@ const filesSource = (to: Hand): PaletteSource => ({
       return null;
     });
     if (indexed) indexProgress.set(indexed.filling ?? []);
+    // Mac: the guarded folders this query left out (never read until the person opens them)
+    const skipped = new Set<string>(indexed?.ready ? (indexed.skippedGuarded ?? []) : []);
     const covered = indexed?.ready ? indexed.roots : [];
     // the index already holds every name under these, deeper than any walk goes
     // ⛔ the home folder and the profile hold everything, so being under one says nothing: they
@@ -558,10 +625,16 @@ const filesSource = (to: Hand): PaletteSource => ({
     // ⛔ a search that fails is logged and costs its own hits only: the row that hands the
     // whole thing to the explorer is the one thing this source must always offer
     const search = (roots: string[], max: number, budget: number) =>
-      spotlightFiles(t, roots, max, budget, 4).catch((e: unknown) => {
-        logError('palette.spotlightFiles', e);
-        return [] as FileEntry[];
-      });
+      spotlightFiles(t, roots, max, budget, 4).then(
+        (found) => {
+          for (const g of found.skippedGuarded) skipped.add(g);
+          return found.entries;
+        },
+        (e: unknown) => {
+          logError('palette.spotlightFiles', e);
+          return [] as FileEntry[];
+        },
+      );
     let hits: FileEntry[] = indexed?.ready ? [...indexed.hits] : [];
     // ⛔ always, not only while the index gave fewer than 20: `note-` fills all 20 index slots with
     // home caches (`.vscode`, `.bun`) and the recent folder's own notes were never searched. The
@@ -603,7 +676,31 @@ const filesSource = (to: Hand): PaletteSource => ({
     return [
       ...hits.map((e) => fileResult(to, `file:${e.path}`, e, 'files')),
       everywhereResult(t, to),
+      ...(skipped.size > 0 ? [notSearchedResult([...skipped])] : []),
     ];
+  },
+});
+
+/**
+ * Mac: ONE quiet row when the search left out privacy-guarded folders the person has not opened
+ * in Trove (Desktop, Documents, Downloads…) — reading inside one raises macOS's prompt, so no
+ * search does it on its own (`core::privacy_folders`). Allow reads each once, so macOS asks now,
+ * at a moment the person chose; the palette stays open and asks its sources again
+ * (`keepsOpen`). After "Search everywhere", so Enter on an empty list never raises a prompt.
+ */
+export const notSearchedResult = (skipped: string[]): PaletteResult => ({
+  key: 'files:not-searched',
+  category: 'files',
+  title: notSearchedTitle(skipped),
+  detail: 'macOS asks once for each folder',
+  glyph: 'folder',
+  matched: true,
+  pinLast: true,
+  quiet: true,
+  actionLabel: 'Allow',
+  keepsOpen: true,
+  run: async () => {
+    await guardedFolders.allow(skipped);
   },
 });
 
@@ -649,6 +746,7 @@ export const makePaletteSources = (target?: PaletteTarget): PaletteSource[] => {
   const to = target ? toTarget(target) : toMain;
   return [
     calcSource(to),
+    extensionSource(to),
     actionsSource(to),
     pathSource(to),
     recentSource(to),

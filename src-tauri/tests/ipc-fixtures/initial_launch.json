@@ -1,0 +1,12 @@
+[
+  {
+    "hidden": false,
+    "path": "/home/alex",
+    "select": "/home/alex/a.txt"
+  },
+  {
+    "hidden": false,
+    "path": null,
+    "select": null
+  }
+]

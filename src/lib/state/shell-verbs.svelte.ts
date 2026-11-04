@@ -1,12 +1,20 @@
 // Windows' registered context-menu verbs, read once from the registry through Rust, and the
 // person's own commands from settings — both offered on the row and background menus.
-import { runCustomCommand, runShellVerb, shellVerbs as fetchVerbs } from '$lib/api/shell-verbs';
+import {
+  runCustomCommand,
+  runShellVerb,
+  shellMenu,
+  shellMenuInvoke,
+  shellVerbs as fetchVerbs,
+} from '$lib/api/shell-verbs';
+import type { MenuItem } from '$lib/hooks/use-menu.svelte';
+import { SHELL_DEADLINE_MS, lateRow, shellRows, withDeadline } from '$lib/data/shell-menu';
 import { actions } from '$lib/state/actions.svelte';
 import { settings } from '$lib/state/settings.svelte';
 import type { CommandScope, CustomCommand, ShellVerb, VerbScope } from '$lib/types/shell-verbs';
 import { expandArgs, splitByPlatform, type CommandContext } from '$lib/utils/custom-commands';
 import { isDriveRoot, isWslPath, parentOf } from '$lib/utils/path';
-import { logError } from '$lib/api/log';
+import { logError, logInfo } from '$lib/api/log';
 
 class ShellVerbsState {
   verbs = $state.raw<ShellVerb[]>([]);
@@ -63,6 +71,43 @@ class ShellVerbsState {
     const program = (c: CustomCommand) => c.program.trim().toLowerCase();
     const wslPrograms = new Set(matched.filter((c) => c.scope.includes('wsl')).map(program));
     return matched.filter((c) => c.scope.includes('wsl') || !wslPrograms.has(program(c)));
+  };
+
+  /**
+   * Windows' own items for the slot in `trove` (plan 08 D.1): the shell's menu for `paths`
+   * (or the empty space of the folder `paths[0]`), minus what `trove` already shows. Past
+   * `SHELL_DEADLINE_MS` the answer is dropped and the slot says so in one greyed row; a shell
+   * that refuses (a virtual folder, an unreadable path) leaves nothing behind.
+   */
+  menuRows = async (
+    target: { paths: string[]; background: boolean; dir: string },
+    extended: boolean,
+    trove: MenuItem[],
+  ): Promise<MenuItem[]> => {
+    const started = performance.now();
+    const got = await withDeadline(
+      shellMenu(target.paths, target.background, extended),
+      SHELL_DEADLINE_MS,
+    );
+    if (got.kind === 'late') {
+      logInfo(`shellMenu: no answer in ${SHELL_DEADLINE_MS} ms; Windows items dropped`);
+      return [lateRow()];
+    }
+    if (got.kind === 'error') {
+      logError('shellVerbs.menuRows', got.error);
+      return [];
+    }
+    const { token, items } = got.value;
+    logInfo(`shellMenu: ${items.length} rows in ${Math.round(performance.now() - started)} ms`);
+    return shellRows(items, trove, (id) => this.invokeMenu(token, id, target.dir));
+  };
+
+  invokeMenu = async (token: number, id: number, dir: string) => {
+    try {
+      await shellMenuInvoke(token, id, dir);
+    } catch (e) {
+      actions.notify(String(e), 'error');
+    }
   };
 
   run = async (verb: ShellVerb, path: string) => {

@@ -1,9 +1,11 @@
 import type { FileEntry } from '$lib/types/fs';
 import { dimensionsText } from '$lib/state/dimensions.svelte';
 import { folderSizeText } from '$lib/state/folder-sizes.svelte';
-import { shownName } from '$lib/utils/app-bundle';
+import { nameLabel } from '$lib/utils/file-name';
 import { fmtDate, fmtSize } from '$lib/utils/format';
 import { parentOf, toLinuxForm } from '$lib/utils/path';
+import { tildeHome } from '$lib/utils/path-display';
+import { homeFolder } from '$lib/state/home-folder.svelte';
 import { shortKindOf } from '$lib/utils/short-kind';
 
 /** `path` sorts by the containing folder — the Folder column of search results. */
@@ -16,7 +18,13 @@ export interface FileColumn {
   defaultWidth: number;
   minWidth: number;
   align: 'left' | 'right';
-  cell: (e: FileEntry) => string;
+  /** `o` carries the view settings a cell honours; this module cannot import `state/settings` */
+  cell: (e: FileEntry, o?: CellOptions) => string;
+}
+
+/** What `state/settings` hands a cell: the toggles that change how a value reads. */
+export interface CellOptions {
+  showExtensions: boolean;
 }
 
 /**
@@ -31,7 +39,7 @@ export const fileColumns: FileColumn[] = [
     defaultWidth: 245,
     minWidth: 120,
     align: 'left',
-    cell: shownName,
+    cell: (e, o) => nameLabel(e, o?.showExtensions ?? true),
   },
   {
     key: 'modifiedMs',
@@ -85,10 +93,11 @@ export const pathColumn: FileColumn = {
   defaultWidth: 240,
   minWidth: 120,
   align: 'left',
-  // a WSL hit shows its folder the way the address bar does: `Ubuntu:/home/alex`
+  // a WSL hit shows its folder the way the address bar does: `Ubuntu:/home/alex`; a folder in
+  // the user's home starts at `~` (display only)
   cell: (e) => {
     const parent = parentOf(e.path) ?? '';
-    return toLinuxForm(parent) ?? parent;
+    return toLinuxForm(parent) ?? tildeHome(parent, homeFolder.path);
   },
 };
 

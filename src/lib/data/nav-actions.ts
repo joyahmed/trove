@@ -2,6 +2,7 @@ import type { GlyphName } from '$lib/data/glyphs';
 import type { ViewMode } from '$lib/state/settings.svelte';
 import { tabs } from '$lib/state/tabs.svelte';
 import { commandHint } from '$lib/utils/key-label';
+import { actionHint } from '$lib/data/action-chords';
 
 export interface NavAction {
   key: string;
@@ -74,21 +75,21 @@ export const viewChoices: ViewChoice[] = [
   {
     key: 'grid',
     get label() {
-      return `Icons (${commandHint('viewIcons')})`;
+      return `Icons (${actionHint('view-icons')})`;
     },
     glyph: 'viewLargeIcons',
   },
   {
     key: 'list',
     get label() {
-      return `List (${commandHint('viewList')})`;
+      return `List (${actionHint('view-list')})`;
     },
     glyph: 'viewList',
   },
   {
     key: 'details',
     get label() {
-      return `Details (${commandHint('viewDetails')})`;
+      return `Details (${actionHint('view-details')})`;
     },
     glyph: 'viewDetails',
   },

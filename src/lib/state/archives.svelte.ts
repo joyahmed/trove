@@ -15,6 +15,7 @@ import type { ArchiveFormat, ArchiveOutput } from '$lib/types/archive';
 import type { Resolution, TransferOutput } from '$lib/types/transfer';
 import { noBinQuestion, noRecycleBin } from '$lib/utils/no-bin';
 import { parentOf } from '$lib/utils/path';
+import { readsRar } from '$lib/utils/platform';
 
 /** The paths a job made itself — never one it replaced. */
 const createdOf = (outputs: TransferOutput[]) =>
@@ -44,10 +45,13 @@ const EXTRACTABLE: readonly string[] = [
   'tzst',
 ];
 
-/** An archive per `fileCategoryOf` whose kind this build can open — what "Extract here" needs. */
-export const canExtract = (name: string) =>
-  fileCategoryOf(name) === 'archive' &&
-  EXTRACTABLE.includes(name.toLowerCase().split('.').at(-1) ?? '');
+/** An archive per `fileCategoryOf` whose kind this build can open — what "Extract here" needs.
+ * RAR (Phase 5) only in a build with the `rar` cargo feature (`readsRar`). */
+export const canExtract = (name: string) => {
+  if (fileCategoryOf(name) !== 'archive') return false;
+  const ext = name.toLowerCase().split('.').at(-1) ?? '';
+  return EXTRACTABLE.includes(ext) || (ext === 'rar' && readsRar());
+};
 
 /** A rerun for Redo: the start call with a hook that learns what this run landed. */
 type Rerun = (landed: StartOptions['undo']) => Promise<unknown>;
@@ -157,6 +161,8 @@ class ArchivesState {
     if (made.length === 0) return null;
     return {
       label,
+      at: Date.now(),
+      toRecord: () => ({ kind: 'copy', created: [...made] }),
       undo: () => this.#removeMade(made, what),
       redo: async () => {
         await rerun((landed) => {

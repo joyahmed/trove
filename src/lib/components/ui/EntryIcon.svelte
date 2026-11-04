@@ -1,6 +1,6 @@
 <!-- An entry's icon wherever a list, a card or a pane draws one: the folder SVG, a category glyph
      or a decoded picture (off Windows), or the shell's icon (Windows) — utils/file-icon.ts — with
-     the shortcut arrow over it for a link. -->
+     the shortcut arrow over it for a link and the OneDrive status for a cloud file. -->
 <script lang="ts">
   import type { FileEntry } from '$lib/types/fs';
   import { iconUrl } from '$lib/api/icons'; // a pure URL formatter, not an IPC call
@@ -10,10 +10,11 @@
   import FileTypeIcon from './FileTypeIcon.svelte';
   import DecodedThumb from './DecodedThumb.svelte';
   import LinkBadge from './LinkBadge.svelte';
+  import CloudBadge from './CloudBadge.svelte';
 
   interface Props {
     entry: Pick<FileEntry, 'isDir' | 'iconKey' | 'name' | 'path' | 'isLink'> &
-      Partial<Pick<FileEntry, 'size' | 'modifiedMs'>>;
+      Partial<Pick<FileEntry, 'size' | 'modifiedMs' | 'cloudState'>>;
     /** the shell icon asked for, px */
     size: 16 | 32;
     /** the box it is drawn in, px; `size` by default (the preview pane draws 32 at 64) */
@@ -57,4 +58,5 @@
     />
   {/if}
   {#if entry.isLink}<LinkBadge size={box} />{/if}
+  {#if entry.cloudState}<CloudBadge state={entry.cloudState} size={box} />{/if}
 </span>

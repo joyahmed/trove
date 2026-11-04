@@ -33,3 +33,12 @@ export const fmtDate = (ms: number | null): string => {
   const d = new Date(ms);
   return `${two(d.getDate())}/${two(d.getMonth() + 1)}/${d.getFullYear()} ${two(d.getHours())}:${two(d.getMinutes())}`;
 };
+
+/** Undo history's time: `14:05` for today, `fmtDate` before it; empty when the entry never said. */
+export const historyTime = (at: number | null, now = Date.now()): string => {
+  if (at === null) return '';
+  const d = new Date(at);
+  return d.toDateString() === new Date(now).toDateString()
+    ? `${two(d.getHours())}:${two(d.getMinutes())}`
+    : fmtDate(at);
+};

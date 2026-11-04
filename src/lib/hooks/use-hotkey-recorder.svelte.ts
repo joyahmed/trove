@@ -24,10 +24,16 @@ export const useHotkeyRecorder = (onchange: (chord: string) => unknown) => {
     setTimeout(() => setHotkeyRecording(recording), 0);
   };
 
+  // `onchange` may refuse the chord in words (Settings ▸ Keyboard: the key is taken); the
+  // reason shows and the recorder keeps listening for another press
   const accept = (chord: string) => {
+    const why = onchange(chord);
+    if (typeof why === 'string') {
+      refused = why;
+      return;
+    }
     refused = null;
     stop();
-    onchange(chord);
   };
 
   const start = () => {

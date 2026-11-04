@@ -9,7 +9,7 @@ import {
   onSpotlightSearch,
   registerHotkey,
 } from '$lib/api/palette';
-import { paletteActionRunners } from '$lib/data/palette-action-runners';
+import { runPaletteAction } from '$lib/data/palette-action-runners';
 import { actions } from '$lib/state/actions.svelte';
 import { search } from '$lib/state/search.svelte';
 import { selection } from '$lib/state/selection.svelte';
@@ -26,8 +26,7 @@ class SpotlightBridge {
   hotkeyConflict = $state<string | null>(null);
 
   runAction(key: string) {
-    const run = paletteActionRunners[key];
-    if (run) void run();
+    void runPaletteAction(key);
   }
 
   navigate(path: string) {
@@ -45,6 +44,11 @@ class SpotlightBridge {
   /** "Search everywhere": every drive, from This PC, in the explorer's own search. */
   async searchEverywhere(text: string) {
     await tabs.active.navigate(THIS_PC);
+    await search.start(text);
+  }
+
+  /** An extension row: search the active tab's folder (every drive from a place), no navigation. */
+  async searchHere(text: string) {
     await search.start(text);
   }
 
@@ -91,7 +95,7 @@ class SpotlightBridge {
       onSpotlightAction((k) => this.runAction(k)),
       onSpotlightNavigate((p) => this.navigate(p)),
       onSpotlightReveal((p) => void this.reveal(p)),
-      onSpotlightSearch((t) => void this.searchEverywhere(t)),
+      onSpotlightSearch((t, here) => void (here ? this.searchHere(t) : this.searchEverywhere(t))),
       // The palette could not open something (no default browser, most likely). It has its own
       // JS realm and no toast of its own, so this is the only place the person is told.
       onSpotlightOpenFailed((m) => actions.notify(m, 'error')),

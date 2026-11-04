@@ -13,6 +13,7 @@
 // ignored. Every writer of settings.json emits `settings:changed` before it writes, so a held
 // field is always released by the write that follows it. Reads that finish out of order are
 // dropped too: only a read issued after the last one applied counts.
+import { sanitizeOverrides } from '$lib/utils/chord-overrides';
 import { isRecord, sanitize, SETTINGS_KEYS, type Settings } from '$lib/state/settings.svelte';
 
 /** What this needs of `settings`: read it whole, and set fields on it. */
@@ -39,7 +40,9 @@ export class PaletteSettings {
     const now = this.#target.snapshot() as unknown as Record<string, unknown>;
     for (const [key, value] of Object.entries(values)) {
       // assigning an equal copy would still wake everything that reads the field
-      if (!same(now[key], value)) self[key] = value;
+      // the snapshot spells ⌘ as `CmdOrCtrl`; `value` is in memory form
+      const have = key === 'shortcutOverrides' ? sanitizeOverrides(now[key]) : now[key];
+      if (!same(have, value)) self[key] = value;
     }
     this.#target.settled = true;
   }

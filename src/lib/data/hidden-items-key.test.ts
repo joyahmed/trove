@@ -32,11 +32,14 @@ const fires = (e: KeyLike, host: Os, style: Os) =>
   matchShortcut(e, false, tableOn(host, style), host === 'mac') !== null;
 
 describe('hidden items key (G.59)', () => {
-  it('Finder’s chord: on a Mac host always, on a PC only under Mac style', () => {
+  it('Finder’s chord: on a Mac host always, on Linux only under Mac style, on Windows unless Linux style', () => {
     for (const style of OS) expect(fires(finderKey('mac'), 'mac', style), style).toBe(true);
-    for (const host of ['windows', 'linux'] as const)
-      for (const style of OS)
-        expect(fires(finderKey(host), host, style), `${host}/${style}`).toBe(style === 'mac');
+    for (const style of OS) {
+      expect(fires(finderKey('linux'), 'linux', style), `linux/${style}`).toBe(style === 'mac');
+      expect(fires(finderKey('windows'), 'windows', style), `windows/${style}`).toBe(
+        style !== 'linux',
+      );
+    }
   });
 
   it('Ctrl+H: on a Linux host always, on Windows only under Linux style, never on a Mac', () => {
@@ -48,11 +51,11 @@ describe('hidden items key (G.59)', () => {
     }
   });
 
-  it('Windows style on a Windows host binds no hidden key (Explorer has none)', () => {
-    expect(fires(finderKey('windows'), 'windows', 'windows')).toBe(false);
+  it('Windows style on a Windows host takes Finder’s chord (Explorer has none; plan 08 A1)', () => {
+    expect(fires(finderKey('windows'), 'windows', 'windows')).toBe(true);
     expect(fires(ctrlH, 'windows', 'windows')).toBe(false);
-    expect(hiddenItemsChord('windows', 'windows')).toBeNull();
-    expect(hiddenItemsHint('windows', 'windows')).toBeUndefined();
+    expect(hiddenItemsChord('windows', 'windows')).toBe('Ctrl+Shift+.');
+    expect(hiddenItemsHint('windows', 'windows')).toBe('Ctrl+Shift+.');
   });
 
   it('the key flips Show hidden items, and not from a text field', () => {

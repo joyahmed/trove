@@ -38,7 +38,7 @@ const CANDIDATES: DetectedApp[] = [
     program: CODE_EXE,
     args: '--remote wsl+%distro% %linuxpath%',
     scope: ['wsl'],
-    source: 'wsl-probe',
+    source: 'wsl-distro',
     certain: false,
   },
   {

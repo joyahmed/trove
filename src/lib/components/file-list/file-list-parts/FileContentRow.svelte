@@ -4,12 +4,14 @@
 <script lang="ts">
   import { rowId } from '$lib/utils/row-id';
   import type { FileEntry } from '$lib/types/fs';
-  import { dropPathOf, shownName } from '$lib/utils/app-bundle';
+  import { dropPathOf } from '$lib/utils/app-bundle';
+  import { displayName } from '$lib/data/display-name';
   import { useInfotip } from '$lib/hooks/use-infotip.svelte';
   import { CONTENT_ROW_PX } from '$lib/data/view-layouts';
   import { contentFacts } from '$lib/utils/card-lines';
   import { shortKindOf } from '$lib/utils/short-kind';
   import EntryIcon from '$lib/components/ui/EntryIcon.svelte';
+  import ItemCheck from './ItemCheck.svelte';
   import Infotip from './Infotip.svelte';
   import RenameBox from './RenameBox.svelte';
 
@@ -78,12 +80,13 @@
 >
   <!-- no `title`: the infotip carries the truncated name, and a native tooltip would race it -->
   <Infotip {entry} {tip} />
+  <ItemCheck {selected} />
   <EntryIcon {entry} size={32} />
   <span class="flex min-w-0 flex-1 flex-col">
     {#if renaming}
       <RenameBox />
     {:else}
-      <span class="truncate text-xs leading-4">{shownName(entry)}</span>
+      <span class="truncate text-xs leading-4">{displayName(entry)}</span>
       <span class="text-text-secondary truncate text-[11px] leading-4">{shortKindOf(entry)}</span>
     {/if}
   </span>

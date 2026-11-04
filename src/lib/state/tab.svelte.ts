@@ -1,17 +1,26 @@
 // One tab's navigation state: where it is, how it got there, what is listed. Instances live
 // in tabs.svelte.ts; consumers read `tabs.active` — see CONTRIBUTING.md § 1.
 import { SvelteSet } from 'svelte/reactivity';
-import { pathKind, readDir } from '$lib/api/fs';
+import { netSignIn, pathKind, readDir } from '$lib/api/fs';
 import { readArchiveDir } from '$lib/api/archive';
 import type { FileEntry } from '$lib/types/fs';
 import type { Location } from '$lib/types/location';
 import type { SortKey } from '$lib/data/file-columns';
 import { parentLocation, pathLocation, recentLocations, sameLocation } from '$lib/utils/location';
-import { samePath } from '$lib/utils/path';
+import {
+  isRemoteShare,
+  isUnreachableError,
+  serverOf,
+  shareRootOf,
+  signInCodeOf,
+} from '$lib/utils/network';
+import { isWslPath, samePath } from '$lib/utils/path';
+import { sameListing, wslListings } from '$lib/state/wsl-listing-cache';
 import { entryComparator, firstDirectionFor } from '$lib/utils/sort';
 import {
   effectiveFolderView,
   rememberFolderView,
+  applyFolderViewToSubfolders,
   type FolderLayout,
   type FolderViewState,
 } from '$lib/utils/folder-views';
@@ -21,6 +30,7 @@ import { uninstall } from '$lib/state/uninstall.svelte';
 import { places } from '$lib/state/places.svelte';
 import { recycle } from '$lib/state/recycle.svelte';
 import { recent } from '$lib/state/recent.svelte';
+import { network } from '$lib/state/network.svelte';
 import { settings, type IconSize, type ViewMode } from '$lib/state/settings.svelte';
 import { logError } from '$lib/api/log';
 
@@ -42,6 +52,9 @@ const forgetIfGone = async (path: string) => {
   }
 };
 
+/** How long a listing of a network share may take before the tab says it is still reaching it. */
+export const REACHING_AFTER_MS = 1500;
+
 export class TabState {
   /** A folder, or a place (Home, This PC) with no path. Replaced wholesale, never mutated. */
   location = $state.raw<Location>(pathLocation(''));
@@ -54,12 +67,37 @@ export class TabState {
    * still shows (`showsList`).
    */
   inArchive = $derived(this.location.kind === 'archive');
-  /** What the list says while it waits: a tar.* is decompressed once just to list it. */
-  loadingText = $derived(this.inArchive ? 'Reading archive…' : 'Loading…');
   /** Replaced wholesale by every listing, never mutated — raw, so 100k entries are not proxied. */
   entries = $state.raw<FileEntry[]>([]);
   loading = $state(false);
   error = $state<string | null>(null);
+  /**
+   * The server of a network share whose listing has taken longer than `REACHING_AFTER_MS`; null
+   * otherwise. While it is set the list says "Still reaching <server>…" with a Cancel button.
+   */
+  slowServer = $state<string | null>(null);
+  /** The listing error is a place that did not answer in time (Rust's 10 s deadline). */
+  unreachable = $derived(this.error !== null && isUnreachableError(this.error));
+  /** Shares whose sign-in was already offered and tried: the box is offered once (5.3d). */
+  #signInTried = new SvelteSet<string>();
+  /**
+   * The OS error (5 or 1326) of a share listing a user name and password could fix, or null.
+   * Set, the error state offers "Sign in…"; never for WSL, a drive, or a share already tried.
+   */
+  signInCode = $derived.by(() => {
+    if (this.error === null || this.location.kind !== 'path') return null;
+    const share = shareRootOf(this.location.path);
+    if (!share || !isRemoteShare(share) || this.#signInTried.has(share.toLowerCase())) return null;
+    return signInCodeOf(this.error);
+  });
+  /** What the list says while it waits: a tar.* is decompressed once just to list it. */
+  loadingText = $derived(
+    this.slowServer !== null
+      ? `Still reaching ${this.slowServer}…`
+      : this.inArchive
+        ? 'Reading archive…'
+        : 'Loading…',
+  );
   /**
    * How this folder is being looked at: its grouping, its sort column and its direction.
    *
@@ -189,6 +227,66 @@ export class TabState {
    */
   #navigating = false;
 
+  /** The timer that raises `slowServer` for the navigate now under way. */
+  #slowTimer: ReturnType<typeof setTimeout> | null = null;
+
+  #clearSlow() {
+    if (this.#slowTimer !== null) clearTimeout(this.#slowTimer);
+    this.#slowTimer = null;
+    this.slowServer = null;
+  }
+
+  /** Arm the "still reaching" state for a network share; a local path never arms it. */
+  #armSlow(path: string, current: () => boolean) {
+    this.#clearSlow();
+    const server = isRemoteShare(path) ? serverOf(path) : null;
+    if (server === null) return;
+    this.#slowTimer = setTimeout(() => {
+      this.#slowTimer = null;
+      if (current()) this.slowServer = server;
+    }, REACHING_AFTER_MS);
+  }
+
+  /**
+   * Give up on the move under way ("Still reaching <server>…" → Cancel). It is abandoned the way
+   * a superseded navigate is: its number stops being the current one, so its late answer lands
+   * nowhere. The tab never left where it was (`location` only changes at the landing), so the
+   * previous listing is simply on screen again with `loading` lowered; a Back / Forward step
+   * that was heading there gives its history entries back.
+   */
+  cancelNavigation() {
+    if (!this.#navigating) return;
+    this.#generation++;
+    this.#undoStep();
+    this.#clearSlow();
+    this.loading = false;
+    this.#navigating = false;
+  }
+
+  /**
+   * The error state's "Sign in…": the OS credential box, then the folder again once connected.
+   * Cancel leaves the error up; a failed connect replaces it with the plain reason.
+   */
+  signIn = async () => {
+    const code = this.signInCode;
+    const path = this.location.kind === 'path' ? this.location.path : '';
+    const share = shareRootOf(path);
+    if (code === null || !share) return;
+    this.#signInTried.add(share.toLowerCase());
+    try {
+      if ((await netSignIn(path, code)) === 'connected') this.retry();
+    } catch (e) {
+      this.error = String(e);
+    }
+  };
+
+  /** Try the folder on screen again (the error state's "Try again"): no history entry. */
+  retry = () => {
+    if (this.location.kind === 'path' && this.location.path) {
+      void this.navigate(this.location, { replace: true });
+    }
+  };
+
   /**
    * The folder `error` is about — not necessarily the one on screen (a failed archive read or
    * `wsl.open` leaves you where you were with the message). Only a read of that same
@@ -216,6 +314,7 @@ export class TabState {
     this.error = null;
     this.#errorPath = null;
     this.filter = '';
+    this.#clearSlow();
     if (target.kind === 'archive')
       return this.#navigateArchive(target, replace, stepEntry, moved, current, step);
     if (target.kind !== 'path') {
@@ -227,8 +326,23 @@ export class TabState {
       this.#navigating = false;
       return;
     }
+    // A WSL folder seen before paints its last rows at once; the read behind it (over 9P,
+    // hundreds of ms) only swaps them if something changed.
+    const cached = isWslPath(target.path) ? wslListings.get(target.path) : undefined;
+    if (cached) {
+      this.#record(target, replace);
+      this.#land(stepEntry, moved);
+      this.location = target;
+      this.entries = cached;
+      this.loading = false;
+      this.#navigating = false;
+      recent.visited(target.path);
+      await this.reload();
+      return;
+    }
     this.loading = true;
     this.#navigating = true;
+    this.#armSlow(target.path, current);
     try {
       const listing = await readDir(target.path);
       if (!current()) return;
@@ -236,7 +350,9 @@ export class TabState {
       this.#land(stepEntry, moved);
       this.location = pathLocation(listing.path);
       this.entries = listing.entries;
+      if (isWslPath(listing.path)) wslListings.remember(listing.path, listing.entries);
       recent.visited(listing.path);
+      network.answered(listing.path);
     } catch (e) {
       if (!current()) return;
       // The move happened, the listing did not: show the folder you asked for with no rows and
@@ -249,11 +365,13 @@ export class TabState {
       this.entries = [];
       this.error = String(e);
       this.#errorPath = target.path;
+      network.failed(e);
       void forgetIfGone(target.path);
     } finally {
       // A superseded navigate lowers nothing: the newer read still owns `loading`, and it is
       // the one that will lower it.
       if (current()) {
+        this.#clearSlow();
         this.loading = false;
         this.#navigating = false;
       }
@@ -423,7 +541,11 @@ export class TabState {
     try {
       const listing = await readDir(path);
       if (!current()) return;
-      this.entries = listing.entries;
+      // the WSL poll re-reads every 5 s: an unchanged folder keeps its array, so nothing repaints
+      if (isWslPath(path)) {
+        if (!sameListing(this.entries, listing.entries)) this.entries = listing.entries;
+        wslListings.remember(path, this.entries);
+      } else this.entries = listing.entries;
       if (this.#errorPath !== null && samePath(this.#errorPath, path)) {
         this.error = null;
         this.#errorPath = null;
@@ -522,6 +644,21 @@ export class TabState {
       return;
     }
     settings.folderViews = rememberFolderView(settings.folderViews, this.path, view);
+  }
+
+  /**
+   * "Apply to subfolders" (plan 08 F4): this folder's view as shown now becomes the one every
+   * folder below it follows. Their own remembered views are dropped so they inherit it.
+   */
+  applyViewToSubfolders() {
+    if (this.path === '') return;
+    settings.folderViews = applyFolderViewToSubfolders(settings.folderViews, this.path, {
+      groupKey: this.groupKey,
+      sortKey: this.sortKey,
+      sortDir: this.sortDir,
+      view: this.view,
+      iconSize: this.iconSize,
+    });
   }
 
   /** A click on a group heading's chevron: fold it shut, or open it again. */

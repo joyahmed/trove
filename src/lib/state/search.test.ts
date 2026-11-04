@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { cancelSearch, startSearch } from '$lib/api/search';
 import { indexSearch } from '$lib/api/palette';
+import { allowGuardedFolders } from '$lib/api/fs';
 import { wslRunningDistros } from '$lib/api/wsl';
 import { RESULTS_FLUSH_MS, search } from './search.svelte';
 import { tabs } from './tabs.svelte';
@@ -15,7 +16,11 @@ vi.mock('$lib/api/search', () => ({
   onSearchResults: vi.fn(async () => () => {}),
 }));
 vi.mock('$lib/api/palette', () => ({ indexSearch: vi.fn() }));
-vi.mock('$lib/api/fs', () => ({ readDir: vi.fn(async (path: string) => ({ path, entries: [] })) }));
+vi.mock('$lib/api/fs', () => ({
+  readDir: vi.fn(async (path: string) => ({ path, entries: [] })),
+  allowGuardedFolders: vi.fn(async (paths: string[]) => paths),
+  unopenedGuardedFolders: vi.fn(async () => []),
+}));
 vi.mock('$lib/api/shell', () => ({
   drives: vi.fn(async () => []),
   knownFolders: vi.fn(async () => []),
@@ -266,6 +271,59 @@ describe('search', () => {
     search.restart();
     await vi.waitFor(() => expect(startSearch).toHaveBeenCalledTimes(2));
     expect(vi.mocked(startSearch).mock.calls[1][1]).toMatchObject({ kind: 'folder', text: 'a' });
+  });
+
+  it('names the personal folders the index left out under the roots, and Allow searches again', async () => {
+    vi.mocked(indexSearch).mockResolvedValue({
+      ready: true,
+      roots: ['C:\\scratch'],
+      hits: [hit('report.txt')],
+      total: 1,
+      skippedGuarded: ['C:\\scratch\\Documents', 'D:\\other\\Desktop'],
+    });
+    await search.start('report');
+    expect(search.skippedGuarded).toEqual(['C:\\scratch\\Documents']);
+
+    vi.mocked(indexSearch).mockClear();
+    await search.allowGuarded();
+    expect(allowGuardedFolders).toHaveBeenCalledWith(['C:\\scratch\\Documents']);
+    await vi.waitFor(() => expect(indexSearch).toHaveBeenCalledTimes(1));
+
+    search.clear();
+    expect(search.skippedGuarded).toEqual([]);
+  });
+
+  it('takes the skipped folders from a running batch, before the walk is done', async () => {
+    await search.start('a *.txt');
+    const id = search.searchId;
+    search.apply({
+      searchId: id,
+      entries: [],
+      scanned: 10,
+      done: false,
+      cancelled: false,
+      error: null,
+      skippedGuarded: ['C:\\scratch\\Desktop'],
+    });
+    expect(search.running).toBe(true);
+    expect(search.skippedGuarded).toEqual(['C:\\scratch\\Desktop']);
+    search.clear();
+  });
+
+  it("takes the skipped folders from the walker's done batch", async () => {
+    await search.start('a *.txt');
+    const id = search.searchId;
+    search.apply({
+      searchId: id,
+      entries: [],
+      scanned: 0,
+      done: true,
+      cancelled: false,
+      error: null,
+      skippedGuarded: ['C:\\scratch\\Desktop'],
+    });
+    expect(search.skippedGuarded).toEqual(['C:\\scratch\\Desktop']);
+    search.clear();
   });
 
   it('search state uses index for name-only query, walker for filters', async () => {
